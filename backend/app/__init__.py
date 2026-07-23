@@ -1,0 +1,1 @@
+"""OCR Control Center backend."""
