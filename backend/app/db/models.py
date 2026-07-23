@@ -156,6 +156,11 @@ class ProviderProfile(TimestampMixin, Base):
         sa.String(16), default="auto", nullable=False
     )  # MODEL_DISCOVERY_MODES
     enabled: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
+    # Last model-discovery outcome (SPEC §9 "Store discovery failures").
+    last_discovery_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    last_discovery_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     models: Mapped[list["Model"]] = relationship(
         back_populates="provider_profile", cascade="all, delete-orphan"
@@ -281,6 +286,18 @@ class ReviewJob(Base):
     resume_from_session_id: Mapped[str | None] = mapped_column(
         sa.String(255), nullable=True
     )
+
+    # --- Stage 2 queue/runtime extensions ----------------------------------
+    #: Individually paused queued job (status stays "queued").
+    paused: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
+    #: Parsed result.json summary + token counts (no secrets).
+    result_summary_json: Mapped[dict[str, Any] | None] = mapped_column(
+        sa.JSON, nullable=True
+    )
+    #: Normalized OCR warnings from result.json.
+    warnings_json: Mapped[list[Any] | None] = mapped_column(sa.JSON, nullable=True)
+    #: Dirty-state fingerprint for workspace jobs (SPEC §11).
+    dirty_fingerprint: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"

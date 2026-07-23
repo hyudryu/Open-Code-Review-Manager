@@ -171,13 +171,34 @@ class OCRAdapter:
         match = _VERSION_RE.search(output)
         return match.group(0) if match else None
 
+    def exec_argv(self, argv: list[str]) -> list[str]:
+        """Wrap an argv array whose program is the OCR binary.
+
+        Script-based custom executables (``.py``/``.js``) cannot be exec'd
+        directly on Windows, so they are launched through their interpreter.
+        Everything stays an argv array — never a shell string.
+        """
+
+        import sys
+
+        if not argv:
+            return argv
+        program = argv[0]
+        lower = program.lower()
+        if lower.endswith(".py"):
+            return [sys.executable, program, *argv[1:]]
+        if lower.endswith(".js"):
+            node = shutil.which("node")
+            if node:
+                return [node, program, *argv[1:]]
+        return argv
+
     async def _run_probe(self, args: list[str]) -> tuple[int, str, str]:
         binary = self._binary
         assert binary is not None
         try:
             proc = await asyncio.create_subprocess_exec(
-                binary,
-                *args,
+                *self.exec_argv([binary, *args]),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=self._base_env(),
@@ -742,7 +763,7 @@ class OCRAdapter:
         self.write_job_config(home, provider)
         env = self.build_job_environment(home, provider)
         rc, stdout, stderr, elapsed = await self._run_process(
-            [status.binary_path, "llm", "test"],
+            self.exec_argv([status.binary_path, "llm", "test"]),
             env=env,
             cwd=home,
             timeout=timeout,
@@ -774,7 +795,7 @@ class OCRAdapter:
         except UnsupportedFeatureError as exc:
             return PreviewResult(ok=False, message=str(exc))
         rc, stdout, stderr, _elapsed = await self._run_process(
-            argv, env=env or self._base_env(), timeout=timeout
+            self.exec_argv(argv), env=env or self._base_env(), timeout=timeout
         )
         if rc != 0:
             return PreviewResult(

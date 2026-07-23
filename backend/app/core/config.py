@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     default_provider_concurrency: int = 2
     max_queued_jobs: int = 200
     cancel_grace_seconds: float = 10.0
+    session_poll_seconds: float = 1.0
+
+    # --- webhooks -----------------------------------------------------------
+    webhook_poll_seconds: float = 2.0
+    webhook_timeout_seconds: float = 15.0
+    webhook_max_response_bytes: int = 64_000
+    webhook_require_https: bool = True
+    webhook_allow_private_networks: bool = False
+    webhook_replay_window_seconds: int = 300
 
     # --- retention ---------------------------------------------------------
     artifact_retention_days: int = 30

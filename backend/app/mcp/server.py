@@ -1,0 +1,484 @@
+"""MCP Streamable HTTP server (SPEC §17).
+
+Every tool is a thin wrapper over ``app.services`` — zero duplicated
+business logic (SPEC §38 rules 9-10). Submission is asynchronous: callers
+get a durable job id immediately and poll ``ocr_get_job`` or read the
+``ocr://jobs/{id}/result`` resource.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+
+from app.db import models
+from app.db.session import get_session_factory
+from app.services.errors import ServiceError
+from app.services.findings import FindingService
+from app.services.jobs import JobService
+from app.services.profiles import ProfileService
+from app.services.projects import ProjectService
+
+# ---------------------------------------------------------------------------
+# Tool implementations (plain async functions — directly testable)
+# ---------------------------------------------------------------------------
+
+
+def _error_payload(exc: ServiceError) -> dict[str, Any]:
+    return {"error": exc.to_dict()["error"]}
+
+
+async def ocr_list_projects(
+    query: str | None = None, include_unavailable: bool = False
+) -> list[dict[str, Any]]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = ProjectService(session)
+        projects = await service.list(query=query, include_unavailable=include_unavailable)
+        return [
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "absolute_path": p.absolute_path,
+                "default_branch": p.default_branch,
+                "current_branch": p.current_branch,
+                "is_available": p.is_available,
+            }
+            for p in projects
+        ]
+
+
+async def ocr_list_branches(
+    project_id: str, refresh: bool = False, fetch: bool = False
+) -> list[dict[str, Any]] | dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = ProjectService(session)
+        try:
+            if refresh or fetch:
+                await service.refresh_branches(project_id, fetch=fetch)
+            branches = await service.list_branches(project_id)
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return [
+            {
+                "name": b.name,
+                "full_ref": b.full_ref,
+                "kind": b.kind,
+                "remote_name": b.remote_name,
+                "commit_sha": b.commit_sha,
+                "is_default": b.is_default,
+                "is_current": b.is_current,
+            }
+            for b in branches
+        ]
+
+
+async def ocr_list_profiles() -> list[dict[str, Any]]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = ProfileService(session)
+        profiles = await service.list()
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "provider_profile_id": p.provider_profile_id,
+                "model_id": p.model_id,
+                "language": p.language,
+            }
+            for p in profiles
+        ]
+
+
+async def ocr_preview_review(
+    project_id: str,
+    mode: str,
+    base_ref: str | None = None,
+    target_ref: str | None = None,
+    commit_ref: str | None = None,
+    profile_id: str | None = None,
+    exclude_patterns: list[str] | None = None,
+) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            result = await service.preview(
+                project_id=project_id,
+                mode=mode,
+                base_ref=base_ref,
+                target_ref=target_ref,
+                commit_ref=commit_ref,
+                profile_id=profile_id,
+                exclude_patterns=exclude_patterns,
+            )
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return result.model_dump()
+
+
+async def ocr_submit_review(
+    project_id: str,
+    mode: str,
+    base_ref: str | None = None,
+    target_ref: str | None = None,
+    commit_ref: str | None = None,
+    profile_id: str | None = None,
+    background: str | None = None,
+    priority: int = 50,
+    webhook_url: str | None = None,
+    webhook_secret: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Asynchronous submission — returns a durable job id immediately."""
+
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            job = await service.create(
+                project_id=project_id,
+                mode=mode,
+                base_ref=base_ref,
+                target_ref=target_ref,
+                commit_ref=commit_ref,
+                profile_id=profile_id,
+                background=background,
+                priority=priority,
+                source="mcp",
+                webhook_url=webhook_url,
+                webhook_secret=webhook_secret,
+                metadata=metadata,
+            )
+            queue = service._queue()
+            position = await queue.queue_position(job)
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {
+            "job_id": job.id,
+            "status": job.status,
+            "queue_position": position,
+            "status_url": f"/api/v1/jobs/{job.id}",
+            "result_resource": f"ocr://jobs/{job.id}/result",
+        }
+
+
+async def ocr_get_job(job_id: str) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            job = await service.get(job_id)
+        except ServiceError as exc:
+            return _error_payload(exc)
+        snapshot = job.configuration_snapshot_json or {}
+        return {
+            "id": job.id,
+            "status": job.status,
+            "status_message": job.status_message,
+            "mode": job.mode,
+            "source": job.source,
+            "project_id": job.project_id,
+            "base_ref": job.base_ref,
+            "target_ref": job.target_ref,
+            "commit_ref": job.commit_ref,
+            "priority": job.priority,
+            "ocr_session_id": job.ocr_session_id,
+            "summary": job.result_summary_json,
+            "warnings": job.warnings_json,
+            "resolved_shas": {
+                "base_sha": snapshot.get("base_sha"),
+                "target_sha": snapshot.get("target_sha"),
+                "commit_sha": snapshot.get("commit_sha"),
+            },
+            "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "status_url": f"/api/v1/jobs/{job.id}",
+            "result_resource": f"ocr://jobs/{job.id}/result",
+        }
+
+
+async def ocr_get_findings(
+    job_id: str, limit: int = 200, offset: int = 0
+) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = FindingService(session)
+        try:
+            findings, total = await service.list_for_job(
+                job_id, limit=limit, offset=offset
+            )
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {
+            "job_id": job_id,
+            "total": total,
+            "findings": [
+                {
+                    "path": f.path,
+                    "start_line": f.start_line,
+                    "end_line": f.end_line,
+                    "content": f.content,
+                    "existing_code": f.existing_code,
+                    "suggestion_code": f.suggestion_code,
+                    "category": f.category,
+                    "severity": f.severity,
+                    "user_state": f.user_state,
+                }
+                for f in findings
+            ],
+        }
+
+
+async def ocr_cancel_job(job_id: str) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            job = await service.cancel(job_id)
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {"job_id": job.id, "status": job.status}
+
+
+async def ocr_retry_job(job_id: str) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            job = await service.retry(job_id)
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {
+            "job_id": job.id,
+            "status": job.status,
+            "retry_of": job.retry_of_job_id,
+            "status_url": f"/api/v1/jobs/{job.id}",
+        }
+
+
+async def ocr_reorder_job(job_id: str, action: str) -> dict[str, Any]:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            job = await service.move(job_id, action)
+            position = await service._queue().queue_position(job)
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {"job_id": job.id, "status": job.status, "queue_position": position}
+
+
+# ---------------------------------------------------------------------------
+# Resource implementations
+# ---------------------------------------------------------------------------
+
+
+def _json(data: Any) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=False, default=str)
+
+
+async def resource_projects() -> str:
+    return _json(await ocr_list_projects(include_unavailable=True))
+
+
+async def resource_project(project_id: str) -> str:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = ProjectService(session)
+        try:
+            project = await service.get(project_id)
+        except ServiceError as exc:
+            return _json(_error_payload(exc))
+        return _json(
+            {
+                "id": project.id,
+                "display_name": project.display_name,
+                "absolute_path": project.absolute_path,
+                "default_branch": project.default_branch,
+                "remote_url": project.remote_url,
+                "current_branch": project.current_branch,
+                "is_dirty": project.is_dirty,
+            }
+        )
+
+
+async def resource_project_branches(project_id: str) -> str:
+    return _json(await ocr_list_branches(project_id))
+
+
+async def resource_job(job_id: str) -> str:
+    return _json(await ocr_get_job(job_id))
+
+
+async def resource_job_result(job_id: str) -> str:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            content, _media, _filename = await service.export(job_id, "json")
+        except ServiceError as exc:
+            return _json(_error_payload(exc))
+        return content
+
+
+async def resource_job_findings(job_id: str) -> str:
+    return _json(await ocr_get_findings(job_id, limit=1000))
+
+
+async def resource_job_logs(job_id: str) -> str:
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            stdout = await service.read_log(job_id, "stdout")
+            stderr = await service.read_log(job_id, "stderr")
+        except ServiceError as exc:
+            return _json(_error_payload(exc))
+        return _json({"stdout": stdout, "stderr": stderr})
+
+
+# ---------------------------------------------------------------------------
+# Prompts (SPEC §17 optional prompts)
+# ---------------------------------------------------------------------------
+
+
+def prompt_review_branch(project: str, base: str = "main", target: str = "") -> str:
+    return (
+        f"Review the changes on branch '{target or '<target>'}' of project "
+        f"'{project}' relative to '{base}'. Use ocr_preview_review to see the "
+        f"files, then ocr_submit_review with mode 'range', and poll "
+        f"ocr_get_job until the review completes. Summarize the findings."
+    )
+
+
+def prompt_review_commit(project: str, commit: str) -> str:
+    return (
+        f"Review commit '{commit}' of project '{project}'. Use "
+        f"ocr_submit_review with mode 'commit', poll ocr_get_job until "
+        f"complete, then report the findings via ocr_get_findings."
+    )
+
+
+def prompt_review_workspace(project: str) -> str:
+    return (
+        f"Review the current uncommitted workspace changes of project "
+        f"'{project}'. Submit with ocr_submit_review mode 'workspace', poll "
+        f"ocr_get_job, then summarize findings."
+    )
+
+
+def prompt_summarize_findings(job_id: str) -> str:
+    return (
+        f"Fetch the findings of review job '{job_id}' via ocr_get_findings "
+        f"and summarize them by file and theme, most impactful first."
+    )
+
+
+def prompt_turn_findings_into_fix_plan(job_id: str) -> str:
+    return (
+        f"Fetch the findings of review job '{job_id}' via ocr_get_findings "
+        f"and turn them into an ordered, actionable fix plan with suggested "
+        f"code changes per finding."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server factory
+# ---------------------------------------------------------------------------
+
+
+def build_mcp_server() -> FastMCP:
+    mcp = FastMCP(
+        "ocr-control-center",
+        instructions=(
+            "Submit and manage OpenCodeReview jobs. Submission is async: "
+            "submit, then poll ocr_get_job or read ocr://jobs/{id}/result."
+        ),
+        streamable_http_path="/",
+        json_response=True,
+        stateless_http=True,
+    )
+
+    mcp.tool(name="ocr_list_projects", description="List registered projects.")(
+        ocr_list_projects
+    )
+    mcp.tool(
+        name="ocr_list_branches",
+        description="List cached branches for a project (optionally refresh/fetch).",
+    )(ocr_list_branches)
+    mcp.tool(name="ocr_list_profiles", description="List review profiles.")(
+        ocr_list_profiles
+    )
+    mcp.tool(
+        name="ocr_preview_review",
+        description="Preview included/excluded files without using the LLM.",
+    )(ocr_preview_review)
+    mcp.tool(
+        name="ocr_submit_review",
+        description="Submit a review job asynchronously; returns a durable job id immediately.",
+    )(ocr_submit_review)
+    mcp.tool(name="ocr_get_job", description="Get job status and progress.")(
+        ocr_get_job
+    )
+    mcp.tool(
+        name="ocr_get_findings", description="Get structured findings for a job."
+    )(ocr_get_findings)
+    mcp.tool(name="ocr_cancel_job", description="Request job cancellation.")(
+        ocr_cancel_job
+    )
+    mcp.tool(name="ocr_retry_job", description="Create a retry of a failed job.")(
+        ocr_retry_job
+    )
+    mcp.tool(
+        name="ocr_reorder_job", description="Move a queued job: top | up | down."
+    )(ocr_reorder_job)
+
+    mcp.resource("ocr://projects", description="All registered projects.")(
+        resource_projects
+    )
+    mcp.resource(
+        "ocr://projects/{project_id}", description="One project."
+    )(resource_project)
+    mcp.resource(
+        "ocr://projects/{project_id}/branches", description="Cached branches."
+    )(resource_project_branches)
+    mcp.resource("ocr://jobs/{job_id}", description="Job status.")(resource_job)
+    mcp.resource(
+        "ocr://jobs/{job_id}/result", description="Full JSON result export."
+    )(resource_job_result)
+    mcp.resource(
+        "ocr://jobs/{job_id}/findings", description="Structured findings."
+    )(resource_job_findings)
+    mcp.resource("ocr://jobs/{job_id}/logs", description="stdout/stderr tails.")(
+        resource_job_logs
+    )
+
+    mcp.prompt(name="review_branch", description="Review a branch range.")(
+        prompt_review_branch
+    )
+    mcp.prompt(name="review_commit", description="Review a single commit.")(
+        prompt_review_commit
+    )
+    mcp.prompt(name="review_workspace", description="Review workspace changes.")(
+        prompt_review_workspace
+    )
+    mcp.prompt(
+        name="summarize_findings", description="Summarize a job's findings."
+    )(prompt_summarize_findings)
+    mcp.prompt(
+        name="turn_findings_into_fix_plan",
+        description="Turn findings into a fix plan.",
+    )(prompt_turn_findings_into_fix_plan)
+
+    return mcp
