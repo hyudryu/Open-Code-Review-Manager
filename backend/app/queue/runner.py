@@ -411,7 +411,12 @@ class JobRunner:
         stderr_task = asyncio.create_task(
             self._stream(proc.stderr, stderr_path, job_id, "stderr")
         )
-        tail_state: dict[str, Any] = {"offset": 0, "path": None, "seen_files": set()}
+        tail_state: dict[str, Any] = {
+            "offset": 0,
+            "path": None,
+            "seen_files": set(),
+            "stop": asyncio.Event(),
+        }
         tail_task = asyncio.create_task(self._tail_session(job_id, job_home, tail_state))
 
         # Wait for exit or cancellation, enforcing the process timeout.
@@ -438,8 +443,17 @@ class JobRunner:
             exit_code = await wait_task if wait_task.done() else proc.returncode
         finally:
             cancel_task.cancel()
-            for task in (stdout_task, stderr_task, tail_task):
+            for task in (stdout_task, stderr_task):
                 task.cancel()
+            # Stop the tailer gracefully rather than cancelling it: a drain
+            # cancelled between advancing the parse offset and emitting the
+            # events would silently drop progress events (observed as flaky
+            # missing job.file_started/job.file_completed on fast jobs).
+            tail_state["stop"].set()
+            try:
+                await asyncio.wait_for(tail_task, timeout=5)
+            except (TimeoutError, asyncio.CancelledError):
+                tail_task.cancel()
             await asyncio.gather(
                 stdout_task, stderr_task, tail_task, return_exceptions=True
             )
@@ -485,8 +499,13 @@ class JobRunner:
         self, job_id: str, job_home: Path, state: dict[str, Any]
     ) -> None:
         poll = max(self.settings.session_poll_seconds, 0.05)
-        while True:
-            await asyncio.sleep(poll)
+        stop: asyncio.Event = state["stop"]
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=poll)
+                break
+            except TimeoutError:
+                pass
             try:
                 await self._drain_session(job_id, job_home, state)
             except asyncio.CancelledError:

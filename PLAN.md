@@ -62,8 +62,8 @@ radius 6–14px, custom CSS Modules components (Button/Input/Table/StatusDot/Mod
 - [x] Stage 0 — Spec ingestion, toolchain check, grounding research, plan
 - [x] Stage 1 — Backend: scaffold, db models + migrations, secrets, git service, OCR adapter
 - [x] Stage 2 — Backend: queue engine + runner + worktrees, webhooks, services, REST API + SSE, MCP, main.py, startup recovery
-- [ ] Stage 3 — Frontend: design system + app shell + all 22 screens
-- [ ] Stage 4 — Tests (backend unit/integration, frontend vitest), OCR planning patch, scripts, docs (README/ARCHITECTURE/API/MCP/WEBHOOKS), .env.example, verification report
+- [x] Stage 3 — Frontend: design system + app shell + all 22 screens
+- [x] Stage 4 — Tests (backend unit/integration, frontend vitest), OCR planning patch, scripts, docs (README/ARCHITECTURE/API/MCP/WEBHOOKS), .env.example, verification report
 
 ## Verification
 
