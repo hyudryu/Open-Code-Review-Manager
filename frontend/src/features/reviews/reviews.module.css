@@ -1,0 +1,208 @@
+/* Branch selector + review form styles. */
+
+.selector {
+  position: relative;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: var(--text-body);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--dur-hover) var(--ease);
+}
+
+.trigger:hover {
+  border-color: var(--text-tertiary);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.triggerPlaceholder {
+  color: var(--text-tertiary);
+}
+
+.triggerValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--text-code);
+}
+
+.popover {
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.searchRow {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.searchInput {
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font: var(--text-body);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.list {
+  overflow-y: auto;
+  padding: var(--space-1);
+  flex: 1;
+}
+
+.groupLabel {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font: var(--text-label);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: var(--space-2);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.optionActive {
+  background: var(--bg-hover);
+}
+
+.optionSelected {
+  background: var(--accent-soft);
+}
+
+.optionTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.optionName {
+  font: var(--text-code);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-small);
+  color: var(--text-tertiary);
+  min-width: 0;
+}
+
+.optionSubject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionEmpty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--text-tertiary);
+  font: var(--text-small);
+}
+
+/* Command preview (SPEC §36) */
+.commandPreview {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.commandHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: var(--text-label);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.commandHeader:hover {
+  color: var(--text-primary);
+}
+
+.commandBody {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.commandArgv {
+  font: var(--text-code);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.commandMeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font: var(--text-small);
+  color: var(--text-secondary);
+}
+
+.commandMeta code {
+  color: var(--text-primary);
+}
