@@ -52,11 +52,13 @@ Commands:
   version      Show version information
 """
 
+# Help lines exactly as printed by a binary built with
+# patches/open-code-review/0001-planning-controls.patch applied.
 PATCHED_HELP_SUFFIX = """
-  --plan-mode string            planning behavior: auto, always, never (default "auto")
-  --plan-threshold int          changed-line threshold for planning (default 50)
-  --max-tokens int              token budget per file (default 58888)
-  --template string             path to a custom task template
+  --plan-mode string            planning behavior: auto (threshold-based), always, never (default "auto")
+  --plan-threshold int          changed-line threshold for planning in auto mode (0 = template default)
+  --max-tokens int              token budget per file (0 = template default)
+  --template string             path to a custom task template JSON file (replaces the embedded template)
 """
 
 
@@ -81,6 +83,32 @@ def test_capabilities_from_patched_help() -> None:
     caps = OCRAdapter.parse_capabilities(REVIEW_HELP + PATCHED_HELP_SUFFIX, ROOT_HELP)
     assert caps.plan_mode and caps.plan_threshold
     assert caps.max_tokens and caps.template_override
+
+
+def test_patched_help_fixture_matches_planning_patch() -> None:
+    """The patched-help fixture must match the shipped patch's usage lines,
+    so the capability probe is tested against the exact text a patched
+    binary prints."""
+
+    patch_path = (
+        Path(__file__).resolve().parents[2]
+        / "patches"
+        / "open-code-review"
+        / "0001-planning-controls.patch"
+    )
+    assert patch_path.is_file(), "planning-controls patch missing"
+    added = [
+        line[1:]
+        for line in patch_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    ]
+    usage_lines = [line for line in added if line.strip().startswith("--")]
+    assert len(usage_lines) == 4, usage_lines
+    for flag in ("--plan-mode", "--plan-threshold", "--max-tokens", "--template"):
+        assert any(line.strip().startswith(flag) for line in usage_lines), flag
+        assert any(line in PATCHED_HELP_SUFFIX for line in usage_lines), (
+            "fixture drifted from patch help text"
+        )
 
 
 def test_parse_version() -> None:
