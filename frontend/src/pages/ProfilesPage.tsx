@@ -53,6 +53,7 @@ const schema = z.object({
   plan_mode: z.enum(["auto", "always", "never"]),
   plan_threshold_lines: z.string(),
   max_tokens: z.string(),
+  template_path: z.string(),
   exclude_patterns: z.string(),
   rule_file_path: z.string(),
   tools_file_path: z.string(),
@@ -124,6 +125,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
       plan_mode: "auto",
       plan_threshold_lines: "",
       max_tokens: "",
+      template_path: "",
       exclude_patterns: "",
       rule_file_path: "",
       tools_file_path: "",
@@ -149,6 +151,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
         plan_mode: p.plan_mode,
         plan_threshold_lines: p.plan_threshold_lines?.toString() ?? "",
         max_tokens: p.max_tokens?.toString() ?? "",
+        template_path: p.template_path ?? "",
         exclude_patterns: (p.exclude_patterns ?? []).join("\n"),
         rule_file_path: p.rule_file_path ?? "",
         tools_file_path: p.tools_file_path ?? "",
@@ -165,6 +168,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
 
   const caps = ocr.data?.capabilities;
   const planningSupported = Boolean(caps?.plan_mode);
+  const templateSupported = Boolean(caps?.template_override);
   const planningReason = planningSupported
     ? null
     : "Planning is automatic — the installed OCR binary controls its plan threshold internally. Install a patched OCR build to unlock these controls.";
@@ -201,6 +205,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           plan_mode: watched.plan_mode,
           plan_threshold_lines: toNumber(watched.plan_threshold_lines),
           max_tokens: toNumber(watched.max_tokens),
+          template_path: watched.template_path || null,
           exclude_patterns: watched.exclude_patterns
             .split("\n")
             .map((s) => s.trim())
@@ -239,6 +244,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
       plan_mode: values.plan_mode,
       plan_threshold_lines: planningSupported ? toNumber(values.plan_threshold_lines) : null,
       max_tokens: planningSupported ? toNumber(values.max_tokens) : null,
+      template_path: templateSupported ? values.template_path.trim() || null : null,
       exclude_patterns: values.exclude_patterns
         .split("\n")
         .map((s) => s.trim())
@@ -399,6 +405,18 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
             {...register("max_tokens")}
           />
         </div>
+        <Input
+          label="Custom task template path (--template)"
+          mono
+          placeholder="templates/my-task-template.json"
+          disabled={!templateSupported}
+          help={
+            templateSupported
+              ? "Complete task template JSON; replaces the embedded template for jobs using this profile."
+              : "Requires a patched OCR build that exposes --template."
+          }
+          {...register("template_path")}
+        />
       </section>
 
       <section className={`${layout.section} ${layout.stack}`} aria-label="Files and rules">

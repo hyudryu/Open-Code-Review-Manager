@@ -214,6 +214,7 @@ class JobService(ServiceBase):
             plan_mode=profile.plan_mode if profile else "auto",  # type: ignore[arg-type]
             plan_threshold_lines=profile.plan_threshold_lines if profile else None,
             max_tokens=profile.max_tokens if profile else None,
+            template_path=profile.template_path if profile else None,
             additional_arguments=additional,
         )
 
@@ -388,6 +389,7 @@ class JobService(ServiceBase):
                         "language", "concurrency", "per_file_timeout_minutes",
                         "llm_http_timeout_seconds", "max_tools", "max_git_processes",
                         "plan_mode", "plan_threshold_lines", "max_tokens",
+                        "template_path",
                         "exclude_patterns", "rule_file_path", "tools_file_path",
                         "background_template", "additional_arguments",
                     )

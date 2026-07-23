@@ -415,6 +415,7 @@ export interface ProfileInput {
   plan_mode?: string;
   plan_threshold_lines?: number | null;
   max_tokens?: number | null;
+  template_path?: string | null;
   exclude_patterns?: string[] | null;
   rule_file_path?: string | null;
   tools_file_path?: string | null;

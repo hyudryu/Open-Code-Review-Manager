@@ -213,6 +213,7 @@ class ReviewProfile(TimestampMixin, Base):
     plan_mode: Mapped[str] = mapped_column(sa.String(16), default="auto", nullable=False)
     plan_threshold_lines: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     max_tokens: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    template_path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     exclude_patterns: Mapped[list[str] | None] = mapped_column(sa.JSON, nullable=True)
     rule_file_path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     tools_file_path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)

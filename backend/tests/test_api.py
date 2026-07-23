@@ -472,3 +472,29 @@ async def test_diagnostics_bundle(client, repo) -> None:
         for name in zf.namelist():
             if name.startswith("logs/"):
                 assert len(zf.read(name)) <= 16_000 + 512  # cap + redaction slack
+
+
+async def test_profile_template_path_roundtrip(client) -> None:
+    """--template is profile-owned (SPEC §8): the field persists through the
+    API and is part of the planning-controls contract."""
+
+    headers = csrf(client)
+    response = await client.post(
+        "/api/v1/review-profiles",
+        json={"name": "Tpl", "template_path": "templates/custom.json"},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    profile = response.json()
+    assert profile["template_path"] == "templates/custom.json"
+
+    response = await client.get(f"/api/v1/review-profiles/{profile['id']}")
+    assert response.json()["template_path"] == "templates/custom.json"
+
+    response = await client.patch(
+        f"/api/v1/review-profiles/{profile['id']}",
+        json={"template_path": "templates/v2.json"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["template_path"] == "templates/v2.json"

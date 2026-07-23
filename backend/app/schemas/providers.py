@@ -101,6 +101,7 @@ class ProfileCreate(BaseModel):
     plan_mode: PlanMode = "auto"
     plan_threshold_lines: int | None = Field(default=None, ge=1)
     max_tokens: int | None = Field(default=None, ge=1)
+    template_path: str | None = None
     exclude_patterns: list[str] | None = None
     rule_file_path: str | None = None
     tools_file_path: str | None = None
@@ -122,6 +123,7 @@ class ProfileUpdate(BaseModel):
     plan_mode: PlanMode | None = None
     plan_threshold_lines: int | None = Field(default=None, ge=1)
     max_tokens: int | None = Field(default=None, ge=1)
+    template_path: str | None = None
     exclude_patterns: list[str] | None = None
     rule_file_path: str | None = None
     tools_file_path: str | None = None
@@ -144,6 +146,7 @@ class ProfileOut(ORMModel):
     plan_mode: str
     plan_threshold_lines: int | None
     max_tokens: int | None
+    template_path: str | None
     exclude_patterns: list[str] | None
     rule_file_path: str | None
     tools_file_path: str | None

@@ -24,6 +24,7 @@ _EDITABLE_FIELDS = (
     "plan_mode",
     "plan_threshold_lines",
     "max_tokens",
+    "template_path",
     "exclude_patterns",
     "rule_file_path",
     "tools_file_path",

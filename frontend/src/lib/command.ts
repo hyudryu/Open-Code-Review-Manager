@@ -70,6 +70,8 @@ export function buildCommandPreview(
         argv.push("--plan-threshold", String(profile.plan_threshold_lines));
       if (profile.max_tokens) argv.push("--max-tokens", String(profile.max_tokens));
     }
+    if (caps?.template_override && profile.template_path)
+      argv.push("--template", profile.template_path);
   }
 
   if (input.model) argv.push("--model", input.model);
