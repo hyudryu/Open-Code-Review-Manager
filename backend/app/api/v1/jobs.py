@@ -294,6 +294,7 @@ async def list_findings(
     job_id: str,
     user_state: str | None = None,
     path: str | None = None,
+    include_reasoning: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     service: FindingService = Depends(finding_service),
@@ -301,7 +302,28 @@ async def list_findings(
     findings, total = await service.list_for_job(
         job_id, user_state=user_state, path=path, limit=limit, offset=offset
     )
-    return Page[FindingOut](items=findings, total=total, limit=limit, offset=offset)
+    items = [FindingOut.model_validate(f) for f in findings]
+    if not include_reasoning:
+        # Reasoning is opt-in only (SPEC §38.15).
+        for item in items:
+            item.thinking = None
+    return Page[FindingOut](items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/{job_id}/findings/{finding_id}", response_model=FindingOut)
+async def get_finding(
+    job_id: str,
+    finding_id: str,
+    include_reasoning: bool = Query(default=False),
+    service: FindingService = Depends(finding_service),
+):
+    finding = await service.get(finding_id)
+    if finding.job_id != job_id:
+        raise NotFoundError("Finding", finding_id)
+    data = FindingOut.model_validate(finding)
+    if not include_reasoning:
+        data.thinking = None
+    return data
 
 
 @router.patch("/{job_id}/findings/{finding_id}", response_model=FindingOut)
@@ -314,9 +336,12 @@ async def update_finding(
     finding = await service.get(finding_id)
     if finding.job_id != job_id:
         raise NotFoundError("Finding", finding_id)
-    return await service.update(
+    updated = await service.update(
         finding_id, **payload.model_dump(exclude_unset=True)
     )
+    data = FindingOut.model_validate(updated)
+    data.thinking = None  # mutations never leak reasoning (SPEC §38.15)
+    return data
 
 
 @router.get("/{job_id}/warnings", response_model=list[dict[str, Any]])
@@ -338,11 +363,16 @@ async def job_logs(
 @router.get("/{job_id}/session", response_model=SessionOut)
 async def job_session(
     job_id: str,
+    q: str | None = Query(default=None, max_length=500),
+    task_type: str | None = Query(default=None, max_length=100),
+    file: str | None = Query(default=None, max_length=500),
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     service: JobService = Depends(job_service),
 ):
-    return await service.read_session(job_id, limit=limit, offset=offset)
+    return await service.read_session(
+        job_id, limit=limit, offset=offset, q=q, task_type=task_type, file=file
+    )
 
 
 @router.get("/{job_id}/export")

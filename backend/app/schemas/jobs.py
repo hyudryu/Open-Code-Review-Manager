@@ -105,6 +105,9 @@ class FindingOut(ORMModel):
     user_state: str
     user_note: str | None
     created_at: datetime
+    # Raw model reasoning. Only populated when the caller explicitly opts in
+    # via ``include_reasoning=true``; routes null it out otherwise (SPEC §38.15).
+    thinking: str | None = None
 
 
 class FindingUpdate(BaseModel):

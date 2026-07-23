@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import json
 import platform
 import sys
+import zipfile
 from typing import Any
 
 from sqlalchemy import select
 
+from app.core.logging import redact_text
 from app.db import models
 from app.services.deps import ServiceBase
 
@@ -113,3 +117,115 @@ class DiagnosticsService(ServiceBase):
             "worktree_count": worktrees,
             "session_storage_bytes": session_bytes,
         }
+
+    async def recent_errors(self, *, limit: int = 10) -> list[dict[str, Any]]:
+        """Last ``limit`` sanitized backend errors (failed jobs + error events)."""
+
+        errors: list[dict[str, Any]] = []
+        failed_jobs = await self.session.execute(
+            select(models.ReviewJob)
+            .where(models.ReviewJob.status == "failed")
+            .order_by(models.ReviewJob.completed_at.desc())
+            .limit(limit)
+        )
+        for job in failed_jobs.scalars():
+            errors.append(
+                {
+                    "kind": "job_failed",
+                    "job_id": job.id,
+                    "message": redact_text(job.status_message or ""),
+                    "at": job.completed_at.isoformat() if job.completed_at else None,
+                }
+            )
+        error_events = await self.session.execute(
+            select(models.JobEvent)
+            .where(models.JobEvent.event_type.like("%error%"))
+            .order_by(models.JobEvent.id.desc())
+            .limit(limit)
+        )
+        for event in error_events.scalars():
+            errors.append(
+                {
+                    "kind": event.event_type,
+                    "job_id": event.job_id,
+                    "message": redact_text(
+                        json.dumps(event.payload_json or {}, ensure_ascii=False)
+                    )[:1000],
+                    "at": event.created_at.isoformat() if event.created_at else None,
+                }
+            )
+        errors.sort(key=lambda e: e.get("at") or "", reverse=True)
+        return errors[:limit]
+
+    #: Per-file cap for log excerpts inside the diagnostics bundle (SPEC §30).
+    BUNDLE_LOG_CAP_BYTES = 16_000
+    #: How many recent jobs contribute log excerpts.
+    BUNDLE_LOG_JOB_COUNT = 5
+
+    async def build_bundle(self, *, queue_worker=None, webhook_worker=None) -> bytes:
+        """Sanitized zip diagnostics bundle (SPEC §30).
+
+        Contains the system-info snapshot, sanitized settings, recent errors,
+        and capped/redacted log excerpts. Never includes credentials (the DB
+        only stores secret references) or source file content.
+        """
+
+        info = await self.collect(
+            queue_worker=queue_worker, webhook_worker=webhook_worker
+        )
+        settings_map = await SettingsService(self.session).get_all()
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "README.txt",
+                "OpenCodeReview Control Center diagnostics bundle\n"
+                "Sanitized by construction: no credentials (only secret\n"
+                "references are ever stored), no source file content, log\n"
+                f"excerpts capped at {self.BUNDLE_LOG_CAP_BYTES} bytes and\n"
+                "run through the credential redactor.\n",
+            )
+            zf.writestr(
+                "system-info.json",
+                json.dumps(info, indent=2, default=str, ensure_ascii=False),
+            )
+            zf.writestr(
+                "settings.json",
+                redact_text(
+                    json.dumps(settings_map, indent=2, default=str, ensure_ascii=False)
+                ),
+            )
+            zf.writestr(
+                "recent-errors.json",
+                json.dumps(
+                    await self.recent_errors(), indent=2, ensure_ascii=False
+                ),
+            )
+
+            recent_jobs = await self.session.execute(
+                select(models.ReviewJob)
+                .order_by(models.ReviewJob.queued_at.desc())
+                .limit(self.BUNDLE_LOG_JOB_COUNT)
+            )
+            from pathlib import Path
+
+            for job in recent_jobs.scalars():
+                for stream, path_str in (
+                    ("stdout", job.stdout_path),
+                    ("stderr", job.stderr_path),
+                ):
+                    if not path_str:
+                        continue
+                    path = Path(path_str)
+                    try:
+                        if not path.is_file():
+                            continue
+                        size = path.stat().st_size
+                        with path.open("rb") as fh:
+                            fh.seek(max(0, size - self.BUNDLE_LOG_CAP_BYTES))
+                            data = fh.read(self.BUNDLE_LOG_CAP_BYTES)
+                    except OSError:
+                        continue
+                    text = redact_text(data.decode("utf-8", errors="replace"))
+                    zf.writestr(f"logs/{job.id[:8]}-{stream}.log", text)
+        return buffer.getvalue()

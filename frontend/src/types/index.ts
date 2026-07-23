@@ -272,6 +272,8 @@ export interface Finding {
   user_state: FindingState;
   user_note: string | null;
   created_at: string;
+  /** Only present when explicitly requested with include_reasoning=true. */
+  thinking?: string | null;
 }
 
 export interface JobLog {

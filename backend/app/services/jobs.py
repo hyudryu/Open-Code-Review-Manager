@@ -709,9 +709,21 @@ class JobService(ServiceBase):
         }
 
     async def read_session(
-        self, job_id: str, *, limit: int = 200, offset: int = 0
+        self,
+        job_id: str,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        q: str | None = None,
+        task_type: str | None = None,
+        file: str | None = None,
     ) -> dict[str, Any]:
-        """Paginated raw session records for the inspector (SPEC §15)."""
+        """Paginated raw session records for the inspector (SPEC §15).
+
+        ``q``/``task_type``/``file`` filter server-side so the UI never has
+        to load the whole transcript to search it. ``total`` reflects the
+        filtered record count.
+        """
 
         job = await self.get(job_id)
         if not job.job_home_path:
@@ -719,23 +731,57 @@ class JobService(ServiceBase):
         session_file = self.adapter.locate_session_file(job.job_home_path)
         if session_file is None:
             return {"records": [], "total": 0}
+
+        needle = q.strip().lower() if q else None
+        task = task_type.strip() if task_type else None
+        file_needle = file.strip().lower() if file else None
+
+        def _matches(line: str, record: dict[str, Any] | None) -> bool:
+            if needle and needle not in line.lower():
+                return False
+            if record is not None:
+                if task:
+                    record_task = record.get("task_type") or record.get("taskType")
+                    if record_task != task:
+                        return False
+                if file_needle:
+                    record_file = (
+                        record.get("file_path")
+                        or record.get("filePath")
+                        or record.get("path")
+                        or ""
+                    )
+                    if file_needle not in str(record_file).lower():
+                        return False
+            elif task or file_needle:
+                # Unparseable lines can only satisfy a plain-text search.
+                return False
+            return True
+
         records: list[dict[str, Any]] = []
+        matched = 0
         total = 0
         with session_file.open("r", encoding="utf-8", errors="replace") as fh:
-            for index, line in enumerate(fh):
+            for line in fh:
                 line = line.strip()
                 if not line:
                     continue
                 total += 1
-                if index < offset or len(records) >= limit:
-                    continue
                 try:
-                    records.append(json.loads(line))
+                    parsed: dict[str, Any] | None = json.loads(line)
                 except json.JSONDecodeError:
-                    records.append({"type": "unparseable", "raw": line[:500]})
+                    parsed = None
+                if not _matches(line, parsed):
+                    continue
+                if matched >= offset and len(records) < limit:
+                    if parsed is not None:
+                        records.append(parsed)
+                    else:
+                        records.append({"type": "unparseable", "raw": line[:500]})
+                matched += 1
         return {
             "records": records,
-            "total": total,
+            "total": matched if (needle or task or file_needle) else total,
             "session_file": str(session_file),
             "session_id": job.ocr_session_id,
         }

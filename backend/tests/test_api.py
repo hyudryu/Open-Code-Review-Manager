@@ -197,6 +197,23 @@ async def test_full_happy_path(client, repo, tmp_path) -> None:
     assert page["total"] == 1
     finding = page["items"][0]
     assert finding["path"] == "hello.py"
+    # Reasoning is never returned by default (SPEC §38.15).
+    assert finding["thinking"] is None
+    assert "secret chain-of-thought" not in response.text
+    # Opt-in reasoning via query param.
+    response = await client.get(
+        f"/api/v1/jobs/{job_id}/findings?include_reasoning=true"
+    )
+    assert response.status_code == 200
+    assert response.json()["items"][0]["thinking"] == "secret chain-of-thought"
+    # Single-finding endpoint follows the same opt-in rule.
+    response = await client.get(f"/api/v1/jobs/{job_id}/findings/{finding['id']}")
+    assert response.status_code == 200
+    assert response.json()["thinking"] is None
+    response = await client.get(
+        f"/api/v1/jobs/{job_id}/findings/{finding['id']}?include_reasoning=true"
+    )
+    assert response.json()["thinking"] == "secret chain-of-thought"
     response = await client.patch(
         f"/api/v1/jobs/{job_id}/findings/{finding['id']}",
         json={"user_state": "accepted", "user_note": "lgtm"},
@@ -204,6 +221,7 @@ async def test_full_happy_path(client, repo, tmp_path) -> None:
     )
     assert response.status_code == 200
     assert response.json()["user_state"] == "accepted"
+    assert response.json()["thinking"] is None
 
     # 7. Warnings/logs/session.
     response = await client.get(f"/api/v1/jobs/{job_id}/warnings")
@@ -345,3 +363,112 @@ async def test_provider_crud_and_queue_controls(client, repo) -> None:
     )
     assert response.status_code == 201
     assert response.json()["name"] == "Base copy"
+
+
+async def _completed_job(client, repo) -> str:
+    """Create a project + commit job and wait for a terminal status."""
+
+    headers = csrf(client)
+    response = await client.post(
+        "/api/v1/projects", json={"absolute_path": str(repo)}, headers=headers
+    )
+    assert response.status_code == 201, response.text
+    project_id = response.json()["id"]
+    response = await client.post(
+        "/api/v1/jobs",
+        json={"project_id": project_id, "mode": "commit", "commit_ref": "HEAD"},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    job_id = response.json()["id"]
+    for _ in range(300):
+        response = await client.get(f"/api/v1/jobs/{job_id}")
+        if response.json()["status"] in {
+            "completed", "completed_with_warnings", "failed", "cancelled"
+        }:
+            break
+        await asyncio.sleep(0.1)
+    assert response.json()["status"] == "completed", response.json()
+    return job_id
+
+
+async def test_session_inspector_server_side_filters(client, repo) -> None:
+    job_id = await _completed_job(client, repo)
+
+    # Unfiltered baseline: fake OCR emits 3 session records.
+    response = await client.get(f"/api/v1/jobs/{job_id}/session")
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
+
+    # Full-text search narrows to the records mentioning the file.
+    response = await client.get(f"/api/v1/jobs/{job_id}/session?q=hello")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert all("hello" in json.dumps(r) for r in body["records"])
+
+    # File filter (substring, case-insensitive).
+    response = await client.get(f"/api/v1/jobs/{job_id}/session?file=HELLO.py")
+    assert response.json()["total"] == 2
+    response = await client.get(f"/api/v1/jobs/{job_id}/session?file=missing.py")
+    assert response.json()["total"] == 0
+    assert response.json()["records"] == []
+
+    # Task-type filter: fake session records carry no task_type.
+    response = await client.get(
+        f"/api/v1/jobs/{job_id}/session?task_type=plan_task"
+    )
+    assert response.json()["total"] == 0
+
+    # Filters compose; pagination applies after filtering.
+    response = await client.get(
+        f"/api/v1/jobs/{job_id}/session?q=hello&limit=1&offset=1"
+    )
+    body = response.json()
+    assert body["total"] == 2
+    assert len(body["records"]) == 1
+
+
+async def test_diagnostics_bundle(client, repo) -> None:
+    headers = csrf(client)
+    # Seed a credential that must never appear in the bundle.
+    response = await client.post(
+        "/api/v1/providers",
+        json={
+            "name": "BundleProv",
+            "protocol": "openai",
+            "base_url": "https://api.example.test/v1",
+            "credential": "sk-BUNDLE-SECRET-999",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201
+    job_id = await _completed_job(client, repo)
+
+    response = await client.get("/api/v1/system/diagnostics/bundle")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment" in response.headers["content-disposition"]
+
+    import io
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        names = set(zf.namelist())
+        assert "system-info.json" in names
+        assert "settings.json" in names
+        assert "recent-errors.json" in names
+        assert "README.txt" in names
+        # Capped log excerpts for the completed job are included.
+        assert any(n.startswith(f"logs/{job_id[:8]}-stdout") for n in names)
+        payload = b"".join(zf.read(n) for n in names)
+
+    text = payload.decode("utf-8", errors="replace")
+    assert "sk-BUNDLE-SECRET-999" not in text
+    info = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("system-info.json"))
+    assert info["ocr"]["version"] == "9.9.9-fake"
+    # Log excerpts stay within the documented cap.
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        for name in zf.namelist():
+            if name.startswith("logs/"):
+                assert len(zf.read(name)) <= 16_000 + 512  # cap + redaction slack

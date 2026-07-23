@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 
 from app.api.deps import diagnostics_service, settings_service
 from app.schemas.jobs import HealthOut, SettingsUpdate
@@ -65,6 +67,30 @@ async def update_settings(
     payload: SettingsUpdate, service: SettingsService = Depends(settings_service)
 ):
     return await service.update(payload.changes)
+
+
+@router.get("/system/diagnostics/bundle")
+async def diagnostics_bundle(
+    request: Request,
+    service: DiagnosticsService = Depends(diagnostics_service),
+):
+    """Downloadable sanitized diagnostics bundle (SPEC §30)."""
+
+    queue_worker = getattr(request.app.state, "queue_worker", None)
+    webhook_worker = getattr(request.app.state, "webhook_worker", None)
+    data = await service.build_bundle(
+        queue_worker=queue_worker, webhook_worker=webhook_worker
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="ocr-diagnostics-{stamp}.zip"'
+            )
+        },
+    )
 
 
 @router.get("/system/python")

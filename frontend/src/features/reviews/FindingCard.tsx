@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Finding, FindingState } from "../../types";
-import { useUpdateFinding } from "../../api/hooks";
+import { useFindingReasoning, useUpdateFinding } from "../../api/hooks";
 import { Badge, Button, CopyButton } from "../../components/ui";
 import { toast } from "../../components/ui";
 import layout from "../../layouts/layout.module.css";
@@ -27,6 +27,8 @@ export function FindingCard({ finding }: { finding: Finding }) {
   const [noteOpen, setNoteOpen] = useState(Boolean(finding.user_note));
   const [note, setNote] = useState(finding.user_note ?? "");
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  // Reasoning is fetched on demand, only while the disclosure is open.
+  const reasoning = useFindingReasoning(finding.job_id, finding.id, reasoningOpen);
 
   function setState(user_state: FindingState) {
     update.mutate(
@@ -103,10 +105,28 @@ export function FindingCard({ finding }: { finding: Finding }) {
           {reasoningOpen ? "Hide reasoning" : "Show reasoning"}
         </button>
         {reasoningOpen ? (
-          <p className={layout.small} style={{ marginTop: 6, fontStyle: "italic" }}>
-            Reasoning is not exposed by the API for this finding — use Export with
-            “include reasoning” for the full trace.
-          </p>
+          <div style={{ marginTop: 6 }}>
+            {reasoning.isLoading ? (
+              <p className={layout.small} style={{ fontStyle: "italic" }}>
+                Loading reasoning…
+              </p>
+            ) : reasoning.error ? (
+              <p className={layout.small} style={{ color: "var(--danger)" }}>
+                Could not load reasoning: {reasoning.error.message}
+              </p>
+            ) : reasoning.data?.thinking ? (
+              <pre
+                className={styles.codeBlock}
+                style={{ maxHeight: 240, overflowY: "auto", fontSize: 12 }}
+              >
+                {reasoning.data.thinking}
+              </pre>
+            ) : (
+              <p className={layout.small} style={{ fontStyle: "italic" }}>
+                No reasoning was recorded for this finding.
+              </p>
+            )}
+          </div>
         ) : null}
       </div>
 

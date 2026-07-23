@@ -10,7 +10,7 @@ import {
   Skeleton,
   StatusDot,
 } from "../components/ui";
-import { IconRefresh } from "../components/ui/icons";
+import { IconDownload, IconRefresh } from "../components/ui/icons";
 import { formatBytes } from "../lib/format";
 import layout from "../layouts/layout.module.css";
 
@@ -161,10 +161,17 @@ export function DiagnosticsPage() {
         <section className={`${layout.section} ${layout.sectionTight}`} aria-label="Diagnostic bundle">
           <h2 className={layout.sectionTitle}>Diagnostic bundle</h2>
           <p className={layout.small}>
-            The backend does not currently expose a downloadable bundle endpoint. The
-            snapshot above is fully sanitized (no credentials, no source content) — copy it
-            when reporting an issue.
+            A zip with the sanitized snapshot above, editable settings, the last
+            ten backend errors, and capped log excerpts from recent jobs. No
+            credentials or source content are ever included.
           </p>
+          <div className={layout.row} style={{ marginTop: 8 }}>
+            <a href="/api/v1/system/diagnostics/bundle" download>
+              <Button variant="secondary">
+                <IconDownload size={14} /> Download bundle (.zip)
+              </Button>
+            </a>
+          </div>
         </section>
       </div>
     </>

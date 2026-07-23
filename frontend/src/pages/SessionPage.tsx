@@ -1,6 +1,8 @@
-/** Raw OCR session inspector (SPEC §15, §33.12) — paginated, never whole-file. */
+/** Raw OCR session inspector (SPEC §15, §33.12) — paginated, never whole-file.
+ * Search/filter are server-side (q / task_type / file query params) so the
+ * full transcript is never loaded into the browser. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useJob, useJobSession } from "../api/hooks";
 import { requestText } from "../api/client";
@@ -28,8 +30,18 @@ const TASK_TYPES = [
   "main_task",
   "review_filter_task",
   "memory_compression_task",
-  "relocation_task",
+  "re_location_task",
 ];
+
+/** Debounce a string value so typing does not fire a request per keystroke. */
+function useDebounced(value: string, delayMs = 300): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 function downloadJsonl(jobId: string) {
   requestText(`/api/v1/jobs/${jobId}/export`, { format: "jsonl" })
@@ -115,26 +127,29 @@ export function SessionPage() {
   const { jobId = "" } = useParams();
   const job = useJob(jobId);
   const [offset, setOffset] = useState(0);
-  const session = useJobSession(jobId, offset, PAGE);
   const [query, setQuery] = useState("");
   const [fileFilter, setFileFilter] = useState("");
   const [taskFilter, setTaskFilter] = useState("");
 
-  const records = session.data?.records ?? [];
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return records.filter((r) => {
-      if (fileFilter && !(r.file_path ?? "").includes(fileFilter)) return false;
-      if (taskFilter && r.task_type !== taskFilter) return false;
-      if (q && !JSON.stringify(r).toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [records, query, fileFilter, taskFilter]);
+  const debouncedQuery = useDebounced(query);
+  const debouncedFile = useDebounced(fileFilter);
+  const filters = {
+    q: debouncedQuery.trim() || undefined,
+    file: debouncedFile.trim() || undefined,
+    task_type: taskFilter || undefined,
+  };
+  const session = useJobSession(jobId, offset, PAGE, filters);
 
-  const distinctFiles = useMemo(
-    () => Array.from(new Set(records.map((r) => r.file_path).filter((f): f is string => Boolean(f)))),
-    [records],
-  );
+  // Filtering changes the result set — always restart from the first page.
+  const filterKey = `${filters.q ?? ""}|${filters.file ?? ""}|${filters.task_type ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setOffset(0);
+  }
+
+  const records = session.data?.records ?? [];
+  const filtersActive = Boolean(filters.q || filters.file || filters.task_type);
 
   const total = session.data?.total ?? 0;
   const page = Math.floor(offset / PAGE) + 1;
@@ -146,7 +161,7 @@ export function SessionPage() {
         title="Session inspector"
         subtitle={
           session.data?.session_id
-            ? `OCR session ${session.data.session_id} · ${total} records`
+            ? `OCR session ${session.data.session_id} · ${total} records${filtersActive ? " (filtered)" : ""}`
             : "Raw OCR session records"
         }
         actions={
@@ -165,38 +180,22 @@ export function SessionPage() {
         <div className={styles.filterBar}>
           <div className={styles.filterItem} style={{ minWidth: 240 }}>
             <Input
-              label="Search records (current page)"
+              label="Search records (server-side)"
               type="search"
               placeholder="Text anywhere in the record…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <div className={styles.filterItem}>
-            <label className={layout.small} style={{ display: "block", marginBottom: 4 }}>
-              File
-            </label>
-            <select
+          <div className={styles.filterItem} style={{ minWidth: 200 }}>
+            <Input
+              label="File (path contains)"
+              type="search"
+              placeholder="e.g. src/app.py"
               value={fileFilter}
               onChange={(e) => setFileFilter(e.target.value)}
               aria-label="Filter by file"
-              style={{
-                height: 32,
-                width: "100%",
-                borderRadius: 8,
-                border: "1px solid var(--border-strong)",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                padding: "0 10px",
-              }}
-            >
-              <option value="">All files</option>
-              {distinctFiles.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
+            />
           </div>
           <div className={styles.filterItem}>
             <label className={layout.small} style={{ display: "block", marginBottom: 4 }}>
@@ -237,30 +236,32 @@ export function SessionPage() {
           <div className={layout.section}>
             <EmptyState
               icon={<IconSearch size={28} />}
-              title="No session records"
+              title={filtersActive ? "No records match the filters" : "No session records"}
               body={
-                job.data?.ocr_session_id
-                  ? "The session file could not be read or contains no records."
-                  : "This job has no recorded OCR session. Session files appear after OCR runs."
+                filtersActive
+                  ? "Try a different search term, file, or task type."
+                  : job.data?.ocr_session_id
+                    ? "The session file could not be read or contains no records."
+                    : "This job has no recorded OCR session. Session files appear after OCR runs."
               }
             />
           </div>
         ) : (
           <>
             <div className={layout.section} style={{ padding: "8px 20px" }}>
-              {filtered.length === 0 ? (
+              {records.length === 0 ? (
                 <p className={layout.small} style={{ padding: "12px 0" }}>
-                  No records match the current filters on this page.
+                  No records on this page.
                 </p>
               ) : (
-                filtered.map((record, i) => (
+                records.map((record, i) => (
                   <RecordRow key={`${record.seq ?? i}`} record={record} />
                 ))
               )}
             </div>
             <div className={layout.row} style={{ justifyContent: "space-between" }}>
               <span className={layout.small}>
-                Page {page} of {pages} · {total} records total (loaded in pages of {PAGE} — the full transcript is never loaded at once)
+                Page {page} of {pages} · {total} {filtersActive ? "matching" : ""} records (loaded in pages of {PAGE} — the full transcript is never loaded at once)
               </span>
               <div className={layout.row}>
                 <Button

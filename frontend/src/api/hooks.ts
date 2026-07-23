@@ -57,7 +57,8 @@ export const qk = {
     ["jobs", jobId, "findings", filters ?? {}] as const,
   warnings: (jobId: string) => ["jobs", jobId, "warnings"] as const,
   logs: (jobId: string, stream: string) => ["jobs", jobId, "logs", stream] as const,
-  session: (jobId: string, offset: number) => ["jobs", jobId, "session", offset] as const,
+  session: (jobId: string, offset: number, filters?: Record<string, unknown>) =>
+    ["jobs", jobId, "session", offset, filters ?? {}] as const,
   eventHistory: (jobId: string) => ["jobs", jobId, "events", "history"] as const,
   webhooks: ["webhooks"] as const,
   deliveries: (endpointId: string) => ["webhooks", endpointId, "deliveries"] as const,
@@ -684,6 +685,26 @@ export function useUpdateFinding() {
   });
 }
 
+/**
+ * Lazily fetch a single finding's reasoning. Reasoning is opt-in on the API
+ * (SPEC §38.15) — only request it when the user opens the disclosure.
+ */
+export function useFindingReasoning(
+  jobId: string,
+  findingId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ["jobs", jobId, "findings", findingId, "reasoning"] as const,
+    queryFn: () =>
+      api.get<Finding>(`/api/v1/jobs/${jobId}/findings/${findingId}`, {
+        include_reasoning: true,
+      }),
+    enabled: enabled && Boolean(jobId) && Boolean(findingId),
+    staleTime: Infinity,
+  });
+}
+
 export function useWarnings(jobId: string) {
   return useQuery({
     queryKey: qk.warnings(jobId),
@@ -701,11 +722,26 @@ export function useJobLogs(jobId: string, stream: "stdout" | "stderr") {
   });
 }
 
-export function useJobSession(jobId: string, offset: number, limit = 200) {
+export interface SessionFilters {
+  q?: string;
+  task_type?: string;
+  file?: string;
+}
+
+export function useJobSession(
+  jobId: string,
+  offset: number,
+  limit = 200,
+  filters: SessionFilters = {},
+) {
   return useQuery({
-    queryKey: qk.session(jobId, offset),
+    queryKey: qk.session(jobId, offset, filters as Record<string, unknown>),
     queryFn: () =>
-      api.get<SessionOut>(`/api/v1/jobs/${jobId}/session`, { limit, offset }),
+      api.get<SessionOut>(`/api/v1/jobs/${jobId}/session`, {
+        limit,
+        offset,
+        ...filters,
+      }),
     enabled: Boolean(jobId),
     placeholderData: (prev) => prev,
   });
