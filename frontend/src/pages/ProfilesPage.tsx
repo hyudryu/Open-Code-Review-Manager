@@ -21,6 +21,7 @@ import {
   type ProfileInput,
 } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
+import { apiFieldErrors, formatApiError } from "../api/errors";
 import {
   Badge,
   Button,
@@ -39,20 +40,30 @@ import { CommandPreviewView } from "../features/reviews/CommandPreview";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
+/** Optional numeric string field with the backend's bounds (422 prevention). */
+function boundedNumber(label: string, min: number, max: number) {
+  return z.string().refine((raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return true; // empty = OCR default
+    const n = Number(trimmed);
+    return Number.isInteger(n) && n >= min && n <= max;
+  }, `${label} must be a whole number between ${min} and ${max}.`);
+}
+
 const schema = z.object({
   name: z.string().min(1, "Name is required."),
   description: z.string(),
   provider_profile_id: z.string(),
   model_id: z.string(),
   language: z.string(),
-  concurrency: z.string(),
-  per_file_timeout_minutes: z.string(),
-  llm_http_timeout_seconds: z.string(),
-  max_tools: z.string(),
-  max_git_processes: z.string(),
+  concurrency: boundedNumber("Concurrency", 1, 64),
+  per_file_timeout_minutes: boundedNumber("Per-file timeout", 1, 240),
+  llm_http_timeout_seconds: boundedNumber("LLM HTTP timeout", 1, 7200),
+  max_tools: boundedNumber("Max tools", 1, 200),
+  max_git_processes: boundedNumber("Max Git processes", 1, 64),
   plan_mode: z.enum(["auto", "always", "never"]),
-  plan_threshold_lines: z.string(),
-  max_tokens: z.string(),
+  plan_threshold_lines: boundedNumber("Plan threshold", 1, 1_000_000),
+  max_tokens: boundedNumber("Max tokens", 1, 10_000_000),
   template_path: z.string(),
   exclude_patterns: z.string(),
   rule_file_path: z.string(),
@@ -108,6 +119,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
     handleSubmit,
     reset,
     watch,
+    setError,
     formState: { errors, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -264,6 +276,17 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
         window.history.replaceState(null, "", `/profiles/${created.id}`);
       }
     } catch (err) {
+      // The form STAYS mounted: a toast + inline summary carry the failure,
+      // and 422 {loc, msg} entries map back onto their form fields.
+      toast.error("Could not save profile", formatApiError(err));
+      for (const fieldError of apiFieldErrors(err)) {
+        if (fieldError.field in schema.shape) {
+          setError(fieldError.field as keyof FormValues, {
+            type: "server",
+            message: fieldError.message,
+          });
+        }
+      }
       setSubmitError(err);
     }
   }
@@ -481,7 +504,14 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
 
       <CommandPreviewView preview={livePreview} title="Live command preview (example refs)" />
 
-      {submitError ? <ErrorState title="Could not save profile" error={submitError} /> : null}
+      {submitError ? (
+        <div className={styles.warningBox} role="alert">
+          <span style={{ whiteSpace: "pre-line" }}>
+            <strong>Could not save profile. </strong>
+            {formatApiError(submitError)}
+          </span>
+        </div>
+      ) : null}
 
       <div className={layout.row} style={{ justifyContent: "flex-end" }}>
         <Button

@@ -96,3 +96,21 @@ class BranchOut(ORMModel):
 class RefreshBranchesOut(BaseModel):
     branches: list[BranchOut]
     fetch_error: str | None = None
+
+
+class PullRequestOut(BaseModel):
+    number: int
+    title: str | None = None
+    head_ref: str | None = None
+    head_sha: str | None = None
+    base_ref: str | None = None
+    base_sha: str | None = None
+    author: str | None = None
+    updated_at: datetime | None = None
+    source: str  # api | git
+
+
+class PullRequestListOut(BaseModel):
+    prs: list[PullRequestOut]
+    source: str  # api | git | none
+    warning: str | None = None

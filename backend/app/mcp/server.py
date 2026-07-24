@@ -101,6 +101,7 @@ async def ocr_preview_review(
     base_ref: str | None = None,
     target_ref: str | None = None,
     commit_ref: str | None = None,
+    pr_number: int | None = None,
     profile_id: str | None = None,
     exclude_patterns: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -114,6 +115,7 @@ async def ocr_preview_review(
                 base_ref=base_ref,
                 target_ref=target_ref,
                 commit_ref=commit_ref,
+                pr_number=pr_number,
                 profile_id=profile_id,
                 exclude_patterns=exclude_patterns,
             )
@@ -128,6 +130,7 @@ async def ocr_submit_review(
     base_ref: str | None = None,
     target_ref: str | None = None,
     commit_ref: str | None = None,
+    pr_number: int | None = None,
     profile_id: str | None = None,
     background: str | None = None,
     priority: int = 50,
@@ -147,6 +150,7 @@ async def ocr_submit_review(
                 base_ref=base_ref,
                 target_ref=target_ref,
                 commit_ref=commit_ref,
+                pr_number=pr_number,
                 profile_id=profile_id,
                 background=background,
                 priority=priority,

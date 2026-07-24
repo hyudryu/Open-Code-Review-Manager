@@ -29,6 +29,7 @@ export const MODE_LABEL: Record<string, string> = {
   range: "Range",
   commit: "Commit",
   workspace: "Workspace",
+  pr: "Pull request",
 };
 
 export function jobTargetLabel(job: {
@@ -37,7 +38,7 @@ export function jobTargetLabel(job: {
   target_ref: string | null;
   commit_ref: string | null;
 }): string {
-  if (job.mode === "range")
+  if (job.mode === "range" || job.mode === "pr")
     return `${job.base_ref ?? "?"} → ${job.target_ref ?? "?"}`;
   if (job.mode === "commit") return job.commit_ref ?? "?";
   return "Working tree";

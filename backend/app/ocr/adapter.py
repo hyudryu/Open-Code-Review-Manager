@@ -280,7 +280,7 @@ class OCRAdapter:
     def build_review_command(
         self, ctx: ReviewJobContext, caps: OCRCapabilities | None = None
     ) -> list[str]:
-        """Build the ``ocr review`` argv array for any of the 3 modes.
+        """Build the ``ocr review`` argv array for any of the 4 modes.
 
         ``--format json --audience agent`` are always forced (SPEC §8). When
         ``caps`` is omitted, cached capabilities are used if available, else
@@ -298,7 +298,9 @@ class OCRAdapter:
 
         argv: list[str] = [binary, "review", "--repo", ctx.repo_path]
 
-        if ctx.mode == "range":
+        if ctx.mode in ("range", "pr"):
+            # PR jobs review PR-head vs PR-base: identical argv to a range
+            # review over the SHAs captured immutably at queue time.
             base = ctx.base_sha or ctx.base_ref
             target = ctx.target_sha or ctx.target_ref
             if not base or not target:

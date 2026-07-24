@@ -39,7 +39,9 @@ export function buildCommandPreview(
 
   const argv: string[] = [executable, "review", "--repo", input.repoPath];
 
-  if (input.mode === "range") {
+  if (input.mode === "range" || input.mode === "pr") {
+    // PR jobs review PR-head vs PR-base: same argv as a range review over the
+    // SHAs captured immutably at queue time.
     argv.push(
       "--from",
       input.baseSha ?? input.baseRef ?? "<base>",

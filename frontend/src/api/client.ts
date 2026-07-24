@@ -8,7 +8,12 @@
 export interface ApiErrorDetail {
   code: string;
   message: string;
-  detail?: string | null;
+  /**
+   * String for service errors; a Pydantic-style `{loc, msg}` LIST for 422
+   * payload validation failures. Always format via `formatApiError` /
+   * `formatApiErrorDetail` (src/api/errors.ts) before rendering.
+   */
+  detail?: unknown;
   next_action?: string | null;
 }
 
@@ -26,7 +31,7 @@ export class ApiError extends Error {
   get code(): string {
     return this.body?.code ?? "unknown_error";
   }
-  get detail(): string | null {
+  get detail(): unknown {
     return this.body?.detail ?? null;
   }
   get nextAction(): string | null {
@@ -120,6 +125,12 @@ async function request<T>(
                 typeof (parsed as { detail: unknown }).detail === "string"
                   ? ((parsed as { detail: string }).detail ?? "")
                   : "The request failed.",
+              // Preserve non-string details (e.g. Pydantic {loc, msg} lists)
+              // so formatters can render them instead of crashing.
+              detail:
+                typeof (parsed as { detail: unknown }).detail === "string"
+                  ? null
+                  : (parsed as { detail: unknown }).detail,
             } satisfies ApiErrorDetail)
           : null;
     throw new ApiError(response.status, body, text.slice(0, 200));

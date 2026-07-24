@@ -26,6 +26,7 @@ import type {
   Provider,
   ProviderModel,
   ProviderTestResult,
+  PullRequestList,
   QueueState,
   ReviewProfile,
   ScannedRepo,
@@ -266,6 +267,16 @@ export function useBranches(projectId: string) {
     queryKey: qk.branches(projectId),
     queryFn: () => api.get<Branch[]>(`/api/v1/projects/${projectId}/branches`),
     enabled: Boolean(projectId),
+  });
+}
+
+export function usePullRequests(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["projects", projectId, "pull-requests"] as const,
+    queryFn: () =>
+      api.get<PullRequestList>(`/api/v1/projects/${projectId}/pull-requests`),
+    enabled: Boolean(projectId) && enabled,
+    staleTime: 30_000,
   });
 }
 
@@ -539,6 +550,7 @@ export function usePreviewJob() {
       base_ref?: string | null;
       target_ref?: string | null;
       commit_ref?: string | null;
+      pr_number?: number | null;
       profile_id?: string | null;
       exclude_patterns?: string[] | null;
     }) => api.post<JobPreview>("/api/v1/jobs/preview", input),

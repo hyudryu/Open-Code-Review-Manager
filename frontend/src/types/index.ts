@@ -139,7 +139,7 @@ export interface ReviewProfile {
 
 // --- jobs / queue -----------------------------------------------------------
 
-export type JobMode = "range" | "commit" | "workspace";
+export type JobMode = "range" | "commit" | "workspace" | "pr";
 export type JobStatus =
   | "queued"
   | "preparing"
@@ -230,12 +230,33 @@ export interface JobCreateInput {
   base_ref?: string | null;
   target_ref?: string | null;
   commit_ref?: string | null;
+  pr_number?: number | null;
   profile_id?: string | null;
   background?: string | null;
   background_file?: string | null;
   exclude_patterns?: string[] | null;
   priority?: number;
   webhook_endpoint_id?: string | null;
+}
+
+// --- pull requests ------------------------------------------------------------
+
+export interface PullRequest {
+  number: number;
+  title: string | null;
+  head_ref: string | null;
+  head_sha: string | null;
+  base_ref: string | null;
+  base_sha: string | null;
+  author: string | null;
+  updated_at: string | null;
+  source: "api" | "git";
+}
+
+export interface PullRequestList {
+  prs: PullRequest[];
+  source: "api" | "git" | "none";
+  warning: string | null;
 }
 
 export interface PreviewFile {

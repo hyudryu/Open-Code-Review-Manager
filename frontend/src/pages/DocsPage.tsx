@@ -75,7 +75,7 @@ const TOC = [
 
 const API_GROUPS = [
   { group: "/folders", routes: "CRUD, /{id}/scan, /{id}/register", purpose: "Watched roots scanned for git repositories" },
-  { group: "/projects", routes: "CRUD, /{id}/refresh-branches, /{id}/fetch, /{id}/branches, /{id}/jobs", purpose: "Registered repositories and their branch cache" },
+  { group: "/projects", routes: "CRUD, /{id}/refresh-branches, /{id}/fetch, /{id}/branches, /{id}/pull-requests, /{id}/jobs", purpose: "Registered repositories, their branch cache, and open pull requests" },
   { group: "/providers", routes: "CRUD, /{id}/test, /{id}/discover-models, /{id}/models", purpose: "LLM endpoints, credentials, and models" },
   { group: "/review-profiles", routes: "CRUD, /{id}/duplicate", purpose: "Reusable review configuration bundles" },
   { group: "/jobs", routes: "CRUD + /preview, /cancel, /retry, /resume, /duplicate, /move, /pause, /findings, /logs, /session, /export, /events (SSE)", purpose: "Review submission, lifecycle, and results" },
@@ -173,9 +173,22 @@ export function DocsPage() {
               A durable SQLite-backed queue with priorities, manual reordering, pause, and
               global / per-project / per-provider concurrency limits (all 1 by default).
             </dd>
+            <dt>Review modes</dt>
+            <dd>
+              <Code>range</Code> compares two refs, <Code>commit</Code> reviews one
+              commit, <Code>workspace</Code> reviews uncommitted changes, and{" "}
+              <Code>pr</Code> reviews an open pull request head against its base.
+              PRs are listed from the GitHub API when the project's remote is a GitHub
+              URL (optional <Code>OCR_CC_GITHUB_TOKEN</Code> for private repos and
+              higher rate limits), with a{" "}
+              <Code>git ls-remote refs/pull/*/head</Code> fallback everywhere else —
+              that fallback cannot see the PR base, so the form asks for a base branch.
+              Base and target SHAs are captured immutably at queue time; the generated
+              command is the range form.
+            </dd>
             <dt>Worktree &amp; job isolation</dt>
             <dd>
-              Range and commit reviews run in detached worktrees under{" "}
+              Range, commit, and pull-request reviews run in detached worktrees under{" "}
               <Code>&lt;data_dir&gt;/worktrees</Code> — your repo is never mutated.
               Workspace reviews run on the real path under a per-project exclusive lock.
               Every job gets its own HOME with its own OCR config, so concurrent jobs can

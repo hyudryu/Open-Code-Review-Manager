@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ReviewMode = Literal["range", "commit", "workspace"]
+ReviewMode = Literal["range", "commit", "workspace", "pr"]
 PlanMode = Literal["auto", "always", "never"]
 
 

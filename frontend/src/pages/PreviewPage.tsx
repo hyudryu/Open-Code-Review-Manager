@@ -36,6 +36,7 @@ export function PreviewPage() {
   const baseRef = params.get("base") || null;
   const targetRef = params.get("target") || null;
   const commitRef = params.get("commit") || null;
+  const prNumber = params.get("pr") ? Number(params.get("pr")) : null;
   const profileId = params.get("profile") || null;
   const excludes = (params.get("excludes") ?? "").split(",").filter(Boolean);
 
@@ -53,6 +54,7 @@ export function PreviewPage() {
         base_ref: baseRef,
         target_ref: targetRef,
         commit_ref: commitRef,
+        pr_number: prNumber,
         profile_id: profileId,
         exclude_patterns: excludes.length ? excludes : null,
       })
@@ -78,7 +80,7 @@ export function PreviewPage() {
         title="File preview"
         subtitle={
           project.data
-            ? `${project.data.display_name} · ${mode === "range" ? `${baseRef ?? "?"} → ${targetRef ?? "?"}` : mode === "commit" ? commitRef : "working tree"}`
+            ? `${project.data.display_name} · ${mode === "range" ? `${baseRef ?? "?"} → ${targetRef ?? "?"}` : mode === "commit" ? commitRef : mode === "pr" ? `PR #${prNumber ?? "?"}` : "working tree"}`
             : "Files OCR will review — no LLM calls are made for a preview."
         }
         actions={

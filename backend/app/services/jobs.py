@@ -163,6 +163,81 @@ class JobService(ServiceBase):
             ) from exc
         return shas
 
+    def _prs(self):
+        """Factory for the PR service (tests inject a mock transport here)."""
+
+        from app.services.pull_requests import PrService
+
+        return PrService(self.session)
+
+    async def _resolve_pr(
+        self,
+        project: models.Project,
+        *,
+        pr_number: int | None,
+        base_ref: str | None,
+    ) -> tuple[str | None, str, dict[str, str | None]]:
+        """Resolve a PR to immutable base/target SHAs at queue time (SPEC §7).
+
+        Returns ``(base_ref, target_ref, shas)``. When the PR was listed via
+        the git fallback the base is unknown and must be supplied explicitly.
+        """
+
+        if pr_number is None:
+            raise ValidationFailedError(
+                "Pull request reviews need a PR number.",
+                next_action="Pick an open pull request in the review form.",
+            )
+        if not (project.remote_name or project.remote_url):
+            raise ValidationFailedError(
+                "This project has no git remote, so pull requests cannot be resolved.",
+                next_action=(
+                    "Add a remote to the repository, or use a range review "
+                    "with explicit refs."
+                ),
+            )
+        pr = await self._prs().resolve_pr(project, pr_number)
+        if not pr.head_sha:
+            raise ValidationFailedError(
+                f"The head of pull request #{pr_number} could not be resolved.",
+                next_action="Refresh the pull request list and retry.",
+            )
+        shas: dict[str, str | None] = {
+            "base_sha": pr.base_sha,
+            "target_sha": pr.head_sha,
+            "commit_sha": None,
+        }
+        target_ref = pr.head_ref or f"refs/pull/{pr.number}/head"
+        resolved_base_ref = pr.base_ref
+        if not shas["base_sha"]:
+            # Git fallback: the listing has no base information.
+            resolved_base_ref = base_ref or pr.base_ref
+            if not resolved_base_ref:
+                raise ValidationFailedError(
+                    "The base of this pull request could not be resolved automatically.",
+                    next_action="Pick the base branch in the review form.",
+                )
+            try:
+                shas["base_sha"] = await self.git.resolve_ref(
+                    project.absolute_path, resolved_base_ref
+                )
+            except RefValidationError as exc:
+                raise ValidationFailedError(
+                    "The base ref is not valid.", detail=str(exc)
+                ) from exc
+            except RefNotFoundError as exc:
+                raise ValidationFailedError(
+                    "OpenCodeReview could not resolve the base branch.",
+                    detail=exc.stderr or str(exc),
+                    next_action="Refresh the project branches and pick a valid base.",
+                ) from exc
+            except GitError as exc:
+                raise ValidationFailedError(
+                    "Git could not inspect the repository.",
+                    detail=exc.stderr or str(exc),
+                ) from exc
+        return resolved_base_ref, target_ref, shas
+
     def _build_context(
         self,
         *,
@@ -244,6 +319,7 @@ class JobService(ServiceBase):
         base_ref: str | None = None,
         target_ref: str | None = None,
         commit_ref: str | None = None,
+        pr_number: int | None = None,
         profile_id: str | None = None,
         background: str | None = None,
         background_file: str | None = None,
@@ -277,13 +353,18 @@ class JobService(ServiceBase):
         if mode == "commit":
             validate_git_ref(commit_ref or "")
 
-        shas = await self._resolve_refs(
-            project,
-            mode=mode,
-            base_ref=base_ref,
-            target_ref=target_ref,
-            commit_ref=commit_ref,
-        )
+        if mode == "pr":
+            base_ref, target_ref, shas = await self._resolve_pr(
+                project, pr_number=pr_number, base_ref=base_ref
+            )
+        else:
+            shas = await self._resolve_refs(
+                project,
+                mode=mode,
+                base_ref=base_ref,
+                target_ref=target_ref,
+                commit_ref=commit_ref,
+            )
         provider, model = await self._resolve_provider(profile)
         status = await self.adapter.detect()
 
@@ -300,7 +381,10 @@ class JobService(ServiceBase):
             status="queued",
             ocr_version=status.version,
             webhook_endpoint_id=webhook_endpoint_id,
-            request_metadata_json=dict(metadata or {}),
+            request_metadata_json={
+                **dict(metadata or {}),
+                **({"pr_number": pr_number} if mode == "pr" and pr_number is not None else {}),
+            },
         )
         self.session.add(job)
         await self.session.flush()  # assigns job.id
@@ -474,6 +558,7 @@ class JobService(ServiceBase):
         base_ref: str | None = None,
         target_ref: str | None = None,
         commit_ref: str | None = None,
+        pr_number: int | None = None,
         profile_id: str | None = None,
         exclude_patterns: list[str] | None = None,
     ):
@@ -483,13 +568,18 @@ class JobService(ServiceBase):
         profile = None
         if profile_id:
             profile = await self.session.get(models.ReviewProfile, profile_id)
-        shas = await self._resolve_refs(
-            project,
-            mode=mode,
-            base_ref=base_ref,
-            target_ref=target_ref,
-            commit_ref=commit_ref,
-        )
+        if mode == "pr":
+            base_ref, target_ref, shas = await self._resolve_pr(
+                project, pr_number=pr_number, base_ref=base_ref
+            )
+        else:
+            shas = await self._resolve_refs(
+                project,
+                mode=mode,
+                base_ref=base_ref,
+                target_ref=target_ref,
+                commit_ref=commit_ref,
+            )
         _provider, model = await self._resolve_provider(profile)
         ctx = self._build_context(
             mode=mode,
@@ -953,7 +1043,7 @@ class JobService(ServiceBase):
             "",
             f"- Project: {header['project']}",
             f"- Review: {header['mode']}"
-            + (f" ({header['base_ref']} → {header['target_ref']})" if header["mode"] == "range" else ""),
+            + (f" ({header['base_ref']} → {header['target_ref']})" if header["mode"] in ("range", "pr") else ""),
             f"- Model: {header['model'] or 'n/a'}",
             f"- Files reviewed: {header['files_reviewed'] if header['files_reviewed'] is not None else 'n/a'}",
             f"- Findings: {header['findings_count']}",

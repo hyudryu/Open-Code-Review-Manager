@@ -15,6 +15,7 @@ import {
   useProfiles,
   useProject,
   useProjects,
+  usePullRequests,
   useSystemOcr,
   useWebhooks,
 } from "../api/hooks";
@@ -24,6 +25,7 @@ import {
   ErrorState,
   Input,
   Select,
+  Skeleton,
   Textarea,
   toast,
 } from "../components/ui";
@@ -32,13 +34,14 @@ import { BranchSelector } from "../features/reviews/BranchSelector";
 import { CommandPreviewView } from "../features/reviews/CommandPreview";
 import { parseAdditionalArgs } from "../lib/args";
 import { buildCommandPreview } from "../lib/command";
-import type { Branch, JobMode } from "../types";
+import { relativeTime, shortSha } from "../lib/format";
+import type { Branch, JobMode, PullRequest } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
 const schema = z.object({
   project_id: z.string().min(1, "Choose a project."),
-  mode: z.enum(["range", "commit", "workspace"]),
+  mode: z.enum(["range", "commit", "workspace", "pr"]),
   profile_id: z.string(),
   background: z.string(),
   background_file: z.string(),
@@ -107,8 +110,27 @@ export function NewReviewPage() {
   const [commitRef, setCommitRef] = useState<string | null>(null);
   const [baseBranch, setBaseBranch] = useState<Branch | null>(null);
   const [targetBranch, setTargetBranch] = useState<Branch | null>(null);
+  const [selectedPr, setSelectedPr] = useState<PullRequest | null>(null);
+  const [prQuery, setPrQuery] = useState("");
   const [submitError, setSubmitError] = useState<unknown>(null);
   const [expertOpen, setExpertOpen] = useState(false);
+
+  const pullRequests = usePullRequests(projectId, mode === "pr");
+  const prList = useMemo(() => pullRequests.data?.prs ?? [], [pullRequests.data]);
+  const filteredPrs = useMemo(() => {
+    const q = prQuery.trim().toLowerCase();
+    if (!q) return prList;
+    return prList.filter(
+      (pr) =>
+        String(pr.number).includes(q) ||
+        (pr.title ?? "").toLowerCase().includes(q) ||
+        (pr.author ?? "").toLowerCase().includes(q) ||
+        (pr.head_ref ?? "").toLowerCase().includes(q),
+    );
+  }, [prList, prQuery]);
+  // Base must be chosen manually when the listing came from the git fallback.
+  const prNeedsManualBase =
+    mode === "pr" && selectedPr !== null && !selectedPr.base_sha;
 
   // Sensible defaults once a project's branches arrive.
   useEffect(() => {
@@ -161,11 +183,14 @@ export function NewReviewPage() {
             mode === "workspace"
               ? project.data?.absolute_path ?? "<project path>"
               : `<data-dir>/worktrees/${projectId || "<project>"}/<job>`,
-          baseRef,
-          targetRef,
+          baseRef: mode === "pr" ? (selectedPr?.base_ref ?? baseRef) : baseRef,
+          targetRef: mode === "pr" ? (selectedPr?.head_ref ?? null) : targetRef,
           commitRef,
-          baseSha: baseBranch?.commit_sha,
-          targetSha: targetBranch?.commit_sha,
+          baseSha:
+            mode === "pr"
+              ? (selectedPr?.base_sha ?? baseBranch?.commit_sha)
+              : baseBranch?.commit_sha,
+          targetSha: mode === "pr" ? selectedPr?.head_sha : targetBranch?.commit_sha,
           profile,
           background: background || null,
           backgroundFile: backgroundFile || null,
@@ -176,7 +201,7 @@ export function NewReviewPage() {
       ),
     [
       mode, project.data, projectId, baseRef, targetRef, commitRef,
-      baseBranch, targetBranch, profile, background, backgroundFile,
+      baseBranch, targetBranch, selectedPr, profile, background, backgroundFile,
       excludePatterns, parsedArgs, ocr.data,
     ],
   );
@@ -201,13 +226,33 @@ export function NewReviewPage() {
       setSubmitError(new Error("Select a commit or ref to review."));
       return;
     }
+    if (values.mode === "pr") {
+      if (!selectedPr) {
+        setSubmitError(new Error("Select an open pull request to review."));
+        return;
+      }
+      if (!selectedPr.base_sha && !baseRef) {
+        setSubmitError(
+          new Error(
+            "The base of this pull request is unknown (listed via git refs) — pick a base branch.",
+          ),
+        );
+        return;
+      }
+    }
     try {
       const job = await createJob.mutateAsync({
         project_id: values.project_id,
         mode: values.mode,
-        base_ref: values.mode === "range" ? baseRef : null,
+        base_ref:
+          values.mode === "range"
+            ? baseRef
+            : values.mode === "pr" && !selectedPr?.base_sha
+              ? baseRef
+              : null,
         target_ref: values.mode === "range" ? targetRef : null,
         commit_ref: values.mode === "commit" ? commitRef : null,
+        pr_number: values.mode === "pr" ? (selectedPr?.number ?? null) : null,
         profile_id: values.profile_id || null,
         background: values.background.trim() || null,
         background_file: values.background_file.trim() || null,
@@ -266,6 +311,8 @@ export function NewReviewPage() {
                     setCommitRef(null);
                     setBaseBranch(null);
                     setTargetBranch(null);
+                    setSelectedPr(null);
+                    setPrQuery("");
                   }}
                 >
                   <option value="">Choose a project…</option>
@@ -285,6 +332,7 @@ export function NewReviewPage() {
                   <option value="range">Range — compare two refs</option>
                   <option value="commit">Commit — review one commit</option>
                   <option value="workspace">Workspace — uncommitted changes</option>
+                  <option value="pr">Pull request — review PR head vs base</option>
                 </Select>
               )}
             />
@@ -354,6 +402,135 @@ export function NewReviewPage() {
                 working state at execution time — if the tree changes before the job
                 starts, you will see a warning in the job events.
               </span>
+            </div>
+          ) : null}
+
+          {mode === "pr" ? (
+            <div className={layout.stack}>
+              <div className={layout.row} style={{ justifyContent: "space-between" }}>
+                <FieldLabel>Pull request</FieldLabel>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  disabled={!projectId || pullRequests.isFetching}
+                  onClick={() => void pullRequests.refetch()}
+                >
+                  {pullRequests.isFetching ? "Refreshing…" : "Refresh"}
+                </Button>
+              </div>
+
+              {!projectId ? (
+                <p className={layout.small}>Choose a project first.</p>
+              ) : pullRequests.isLoading ? (
+                <div className={layout.stack}>
+                  <Skeleton height={44} />
+                  <Skeleton height={44} />
+                  <Skeleton height={44} />
+                </div>
+              ) : pullRequests.error ? (
+                <ErrorState
+                  title="Could not load pull requests"
+                  error={pullRequests.error}
+                  onRetry={() => void pullRequests.refetch()}
+                />
+              ) : pullRequests.data ? (
+                <>
+                  {pullRequests.data.warning ? (
+                    <div className={styles.warningBox} role="note">
+                      <span>{pullRequests.data.warning}</span>
+                    </div>
+                  ) : null}
+                  {prList.length === 0 ? (
+                    <p className={layout.small}>
+                      No open pull requests found for this project. Use a range review
+                      with explicit refs instead.
+                    </p>
+                  ) : (
+                    <>
+                      <Input
+                        label="Search pull requests"
+                        placeholder="#number, title, author, or head branch…"
+                        value={prQuery}
+                        onChange={(e) => setPrQuery(e.target.value)}
+                      />
+                      <div
+                        role="listbox"
+                        aria-label="Open pull requests"
+                        className={layout.stack}
+                        style={{ gap: 4, maxHeight: 280, overflowY: "auto" }}
+                      >
+                        {filteredPrs.length === 0 ? (
+                          <p className={layout.small}>No pull requests match the search.</p>
+                        ) : (
+                          filteredPrs.map((pr) => {
+                            const active = selectedPr?.number === pr.number;
+                            return (
+                              <button
+                                key={pr.number}
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                className={`${styles.masterItem} ${active ? styles.masterItemActive : ""}`}
+                                onClick={() => setSelectedPr(pr)}
+                              >
+                                <span style={{ fontWeight: 500 }}>
+                                  #{pr.number} · {pr.title ?? "(listed via git refs)"}
+                                  {pr.author ? ` · ${pr.author}` : ""}
+                                </span>
+                                <span className={layout.small}>
+                                  {pr.base_ref ?? "?"} → {pr.head_ref ?? shortSha(pr.head_sha)}
+                                  {pr.updated_at ? ` · ${relativeTime(pr.updated_at)}` : ""}
+                                </span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {selectedPr ? (
+                    <div className={layout.section} style={{ margin: 0 }}>
+                      <p className={layout.small} style={{ margin: 0 }}>
+                        Selected: <strong>#{selectedPr.number}</strong>
+                        {selectedPr.title ? ` — ${selectedPr.title}` : ""}
+                      </p>
+                      {selectedPr.base_sha ? (
+                        <p className={layout.small} style={{ margin: "4px 0 0" }}>
+                          Base <code className={layout.monoPath}>{selectedPr.base_ref}</code>{" "}
+                          (<code className={layout.monoPath}>{shortSha(selectedPr.base_sha)}</code>)
+                          → target{" "}
+                          <code className={layout.monoPath}>
+                            {selectedPr.head_ref ?? shortSha(selectedPr.head_sha)}
+                          </code>{" "}
+                          (<code className={layout.monoPath}>{shortSha(selectedPr.head_sha)}</code>)
+                          — resolved automatically, captured immutably at queue time.
+                        </p>
+                      ) : (
+                        <div style={{ marginTop: 8 }}>
+                          <FieldLabel htmlFor="pr-base-ref">Base branch (required)</FieldLabel>
+                          <BranchSelector
+                            id="pr-base-ref"
+                            ariaLabel="PR base branch"
+                            branches={branches.data ?? []}
+                            kinds={localAndTags}
+                            value={baseRef}
+                            onChange={(name, branch) => {
+                              setBaseRef(name);
+                              setBaseBranch(branch);
+                            }}
+                            placeholder="Select the PR base branch…"
+                          />
+                          <p className={layout.help} style={{ marginTop: 4 }}>
+                            This PR was listed via git refs, so its base is unknown —
+                            pick the branch it targets.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           ) : null}
 
@@ -555,7 +732,11 @@ export function NewReviewPage() {
         <div className={layout.row} style={{ justifyContent: "flex-end" }}>
           <Button
             variant="secondary"
-            disabled={!projectId || createJob.isPending}
+            disabled={
+              !projectId ||
+              createJob.isPending ||
+              (mode === "pr" && (!selectedPr || (prNeedsManualBase && !baseRef)))
+            }
             onClick={() => {
               const qs = new URLSearchParams({
                 project: projectId,
@@ -563,6 +744,7 @@ export function NewReviewPage() {
                 base: baseRef ?? "",
                 target: targetRef ?? "",
                 commit: commitRef ?? "",
+                pr: selectedPr ? String(selectedPr.number) : "",
                 profile: profileId,
                 excludes: excludePatterns.join(","),
               });
@@ -574,7 +756,12 @@ export function NewReviewPage() {
           <Button
             variant="primary"
             type="submit"
-            disabled={createJob.isPending || !projectId || (parsedArgs.error !== null)}
+            disabled={
+              createJob.isPending ||
+              !projectId ||
+              parsedArgs.error !== null ||
+              (mode === "pr" && (!selectedPr || (prNeedsManualBase && !baseRef)))
+            }
           >
             {createJob.isPending ? "Queueing…" : "Queue review"}
           </Button>

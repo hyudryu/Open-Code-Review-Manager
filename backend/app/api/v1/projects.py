@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, Response
 
 from app.api.deps import project_service
@@ -11,9 +13,12 @@ from app.schemas.projects import (
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
+    PullRequestListOut,
+    PullRequestOut,
     RefreshBranchesOut,
 )
 from app.services.projects import ProjectService
+from app.services.pull_requests import PrService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -85,6 +90,19 @@ async def list_branches(
     service: ProjectService = Depends(project_service),
 ):
     return await service.list_branches(project_id, kind=kind)
+
+
+@router.get("/{project_id}/pull-requests", response_model=PullRequestListOut)
+async def list_pull_requests(
+    project_id: str, service: ProjectService = Depends(project_service)
+):
+    prs = PrService(service.session)
+    listing = await prs.list_open_prs(project_id)
+    return PullRequestListOut(
+        prs=[PullRequestOut(**asdict(pr)) for pr in listing.prs],
+        source=listing.source,
+        warning=listing.warning,
+    )
 
 
 @router.get("/{project_id}/jobs", response_model=list[JobOut])

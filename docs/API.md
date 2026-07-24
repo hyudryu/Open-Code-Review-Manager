@@ -51,6 +51,13 @@ DELETE /projects/{id}
 POST   /projects/{id}/refresh-branches   re-read local+remote refs (no restart needed)
 POST   /projects/{id}/fetch              git fetch --prune, then refresh
 GET    /projects/{id}/branches           [{"name","kind":"local|remote","current","sha","last_commit_at"}]
+GET    /projects/{id}/pull-requests      open PRs → {"prs":[{number,title,head_ref,head_sha,
+                                         base_ref,base_sha,author,updated_at,source}],
+                                         "source":"api|git|none","warning"?}
+                                         GitHub remotes use the REST API (optional
+                                         OCR_CC_GITHUB_TOKEN env); everything else falls
+                                         back to `git ls-remote refs/pull/*/head`
+                                         (number + head_sha only — base chosen manually)
 GET    /projects/{id}/jobs               jobs for this project (paged)
 ```
 
@@ -139,9 +146,15 @@ GET    /jobs/{id}/export                 ?format=md|json|csv|jsonl|txt|agent-pro
 // POST /jobs
 {
   "project_id": "…",
-  "mode": "range",                       // range | commit | workspace
+  "mode": "range",                       // range | commit | workspace | pr
   "base_ref": "main", "target_ref": "feature/x",   // range
   "commit_ref": "HEAD",                                 // commit
+  "pr_number": 7,                                       // pr (base_ref optional —
+                                         // required only when the PR base cannot be
+                                         // resolved automatically; base/target SHAs
+                                         // are captured immutably at queue time and
+                                         // the job runs as a range review in a
+                                         // detached worktree)
   "profile_id": "…",                      // optional; defaults used otherwise
   "background": "…", "background_file": "…",
   "exclude_patterns": ["dist/**"],

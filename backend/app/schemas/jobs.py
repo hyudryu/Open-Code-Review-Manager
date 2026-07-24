@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.projects import ORMModel
 
-JobMode = Literal["range", "commit", "workspace"]
+JobMode = Literal["range", "commit", "workspace", "pr"]
 JobSource = Literal["web", "mcp", "api", "retry"]
 FindingState = Literal["unreviewed", "accepted", "dismissed", "needs_followup"]
 
@@ -20,6 +20,7 @@ class JobCreate(BaseModel):
     base_ref: str | None = None
     target_ref: str | None = None
     commit_ref: str | None = None
+    pr_number: int | None = Field(default=None, ge=1)
     profile_id: str | None = None
     background: str | None = None
     background_file: str | None = None
@@ -37,6 +38,7 @@ class JobPreviewRequest(BaseModel):
     base_ref: str | None = None
     target_ref: str | None = None
     commit_ref: str | None = None
+    pr_number: int | None = Field(default=None, ge=1)
     profile_id: str | None = None
     exclude_patterns: list[str] | None = None
 

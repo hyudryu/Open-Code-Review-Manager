@@ -13,8 +13,8 @@ job is submitted from the UI, the API, or an MCP client.
 | `ocr_list_projects` | List registered projects | `include_unavailable?` |
 | `ocr_list_branches` | Cached branches for a project | `project_id`, `refresh?`, `fetch?` |
 | `ocr_list_profiles` | List review profiles | — |
-| `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs |
-| `ocr_submit_review` | Submit a review job — **returns a durable job id immediately** | `project_id`, `mode` (`range`/`commit`/`workspace`), `base_ref`/`target_ref`/`commit_ref`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
+| `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs, `pr_number?` |
+| `ocr_submit_review` | Submit a review job — **returns a durable job id immediately** | `project_id`, `mode` (`range`/`commit`/`workspace`/`pr`), `base_ref`/`target_ref`/`commit_ref`, `pr_number?`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
 | `ocr_get_job` | Job status and progress | `job_id` |
 | `ocr_get_findings` | Structured findings (never includes raw reasoning) | `job_id`, `user_state?`, `limit?` |
 | `ocr_cancel_job` | Request cancellation | `job_id` |
@@ -28,6 +28,16 @@ returns its id; the queue worker picks it up. Poll `ocr_get_job` (or read
 `ocr://jobs/{job_id}`) until `status` is terminal (`completed`,
 `completed_with_warnings`, `failed`, `cancelled`), then read findings via
 `ocr_get_findings` or `ocr://jobs/{job_id}/result`.
+
+### Pull request reviews
+
+`mode="pr"` with `pr_number` resolves the open pull request against the
+project's remote (GitHub API when the remote is a GitHub URL —
+`OCR_CC_GITHUB_TOKEN` is honored; `git ls-remote refs/pull/*/head`
+otherwise) and captures the base/target SHAs immutably at queue time. The
+job then runs exactly like a range review in a detached worktree. When the
+listing comes from the git fallback the base is unknown and `base_ref` is
+required.
 
 ## Resources
 
