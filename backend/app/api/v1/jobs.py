@@ -15,6 +15,7 @@ from app.api.deps import finding_service, get_db, job_service
 from app.db import models
 from app.db.session import get_session_factory
 from app.queue.bus import get_event_bus
+from app.queue.service import TERMINAL_STATUSES
 from app.schemas.common import Page
 from app.schemas.jobs import (
     FindingOut,
@@ -32,6 +33,7 @@ from app.schemas.jobs import (
 from app.services.errors import NotFoundError
 from app.services.findings import FindingService
 from app.services.jobs import EXPORT_FORMATS, JobService
+from app.services.waits import wait_for_job_terminal
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -92,8 +94,26 @@ async def preview_job(
 
 
 @router.get("/{job_id}", response_model=JobOut)
-async def get_job(job_id: str, service: JobService = Depends(job_service)):
+async def get_job(
+    job_id: str,
+    wait_for_terminal: bool = Query(default=False),
+    timeout_seconds: int = Query(default=300, ge=1, le=600),
+    service: JobService = Depends(job_service),
+):
+    """Job detail. With ``wait_for_terminal=true`` this long-polls
+    server-side until a terminal status or the timeout (SPEC §13/§14)."""
+
     job = await service.get(job_id)
+    if wait_for_terminal and job.status not in TERMINAL_STATUSES:
+        # Release the request-scoped connection while waiting; re-read after.
+        await service.session.rollback()
+        await wait_for_job_terminal(job_id, timeout_seconds)
+        factory = get_session_factory()
+        async with factory() as session:
+            job = await JobService(session).get(job_id)
+            data = JobOut.model_validate(job)
+            data.findings_count = await _findings_count(session, job.id)
+            return data
     data = JobOut.model_validate(job)
     data.findings_count = await _findings_count(service.session, job.id)
     return data

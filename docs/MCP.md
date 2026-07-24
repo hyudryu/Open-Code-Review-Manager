@@ -15,7 +15,7 @@ job is submitted from the UI, the API, or an MCP client.
 | `ocr_list_profiles` | List review profiles | — |
 | `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs, `pr_number?` |
 | `ocr_submit_review` | Submit a review job — **returns a durable job id immediately** | `project_id`, `mode` (`range`/`commit`/`workspace`/`pr`), `base_ref`/`target_ref`/`commit_ref`, `pr_number?`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
-| `ocr_get_job` | Job status and progress | `job_id` |
+| `ocr_get_job` | Job status and progress; `wait_for_terminal=true` blocks server-side until the job finishes | `job_id`, `wait_for_terminal?`, `timeout_seconds?` |
 | `ocr_get_findings` | Structured findings (never includes raw reasoning) | `job_id`, `user_state?`, `limit?` |
 | `ocr_cancel_job` | Request cancellation | `job_id` |
 | `ocr_retry_job` | Create a retry of a failed/cancelled job | `job_id` |
@@ -24,10 +24,37 @@ job is submitted from the UI, the API, or an MCP client.
 ### Asynchronous semantics
 
 `ocr_submit_review` does not block on the review. It persists the job and
-returns its id; the queue worker picks it up. Poll `ocr_get_job` (or read
-`ocr://jobs/{job_id}`) until `status` is terminal (`completed`,
-`completed_with_warnings`, `failed`, `cancelled`), then read findings via
-`ocr_get_findings` or `ocr://jobs/{job_id}/result`.
+returns its id; the queue worker picks it up. To wait for completion, call
+`ocr_get_job` with `wait_for_terminal=true` — the call **blocks server-side**
+(purely async; other requests are unaffected) until the job reaches a
+terminal status (`completed`, `completed_with_warnings`, `failed`,
+`cancelled`, `interrupted`) or `timeout_seconds` elapses (clamped to 1–600,
+default 300). When waiting was requested the payload includes two extra
+flags: `terminal` and `wait_expired`. If `wait_expired` is true the job is
+still in flight — call again to keep waiting. Alternatively, read
+`ocr://jobs/{job_id}` and poll, then fetch findings via `ocr_get_findings`
+or `ocr://jobs/{job_id}/result`.
+
+### Blocking-wait example flow
+
+```python
+job = await session.call_tool("ocr_submit_review", {
+    "project_id": "…", "mode": "commit", "commit_ref": "HEAD",
+})
+job_id = json.loads(job.content[0].text)["job_id"]
+
+# One call waits up to 5 minutes for completion — no polling loop.
+while True:
+    result = await session.call_tool("ocr_get_job", {
+        "job_id": job_id, "wait_for_terminal": True, "timeout_seconds": 300,
+    })
+    payload = json.loads(result.content[0].text)
+    if payload["terminal"]:
+        break  # payload["status"] is completed / failed / cancelled / …
+    # wait_expired=True: still running; loop to wait again.
+
+findings = await session.call_tool("ocr_get_findings", {"job_id": job_id})
+```
 
 ### Pull request reviews
 
@@ -93,7 +120,7 @@ async with streamablehttp_client("http://127.0.0.1:8787/mcp") as (read, write, _
         job = await session.call_tool("ocr_submit_review", {
             "project_id": "…", "mode": "commit", "commit_ref": "HEAD",
         })
-        # poll ocr_get_job until terminal, then:
+        # wait via ocr_get_job wait_for_terminal=true until terminal, then:
         findings = await session.read_resource(f"ocr://jobs/{job_id}/result")
 ```
 

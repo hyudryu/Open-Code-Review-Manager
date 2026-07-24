@@ -129,9 +129,10 @@ export function McpPage() {
           <h2 className={layout.sectionTitle} style={{ margin: 0 }}>Tools</h2>
           <p className={layout.small} style={{ margin: 0 }}>
             Submissions are asynchronous: <code>ocr_submit_review</code> returns a
-            durable job id immediately — poll <code>ocr_get_job</code> (or read{" "}
-            <code>ocr://jobs/{"{id}"}/result</code>) until the status is terminal,
-            then fetch findings.
+            durable job id immediately — call <code>ocr_get_job</code> with{" "}
+            <code>wait_for_terminal=true</code> to block server-side until the job
+            finishes (or read <code>ocr://jobs/{"{id}"}/result</code>), then fetch
+            findings.
           </p>
           <Table>
             <THead>

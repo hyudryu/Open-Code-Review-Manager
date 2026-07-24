@@ -120,6 +120,9 @@ accordingly.
 GET    /jobs                             filters: status, project_id, source, provider_id
 POST   /jobs                             → 201 Job (status "queued"); body below
 GET    /jobs/{id}                        detail incl. snapshot, generated command, findings_count
+                                       ?wait_for_terminal=true&timeout_seconds=300 (1–600) blocks
+                                       server-side until a terminal status or the timeout, then
+                                       returns the latest detail (status may be non-terminal on timeout)
 PATCH  /jobs/{id}                        {"priority"} (queued jobs only)
 DELETE /jobs/{id}                        204 (running jobs must be cancelled first)
 POST   /jobs/preview                     same body as create minus queue options → preview JSON

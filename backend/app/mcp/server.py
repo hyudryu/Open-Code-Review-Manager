@@ -15,11 +15,13 @@ from mcp.server.fastmcp import FastMCP
 
 from app.db import models
 from app.db.session import get_session_factory
+from app.queue.service import TERMINAL_STATUSES
 from app.services.errors import ServiceError
 from app.services.findings import FindingService
 from app.services.jobs import JobService
 from app.services.profiles import ProfileService
 from app.services.projects import ProjectService
+from app.services.waits import wait_for_job_terminal
 
 # ---------------------------------------------------------------------------
 # Tool implementations (plain async functions — directly testable)
@@ -173,7 +175,51 @@ async def ocr_submit_review(
         }
 
 
-async def ocr_get_job(job_id: str) -> dict[str, Any]:
+def _job_payload(job: models.ReviewJob) -> dict[str, Any]:
+    snapshot = job.configuration_snapshot_json or {}
+    return {
+        "id": job.id,
+        "status": job.status,
+        "status_message": job.status_message,
+        "mode": job.mode,
+        "source": job.source,
+        "project_id": job.project_id,
+        "base_ref": job.base_ref,
+        "target_ref": job.target_ref,
+        "commit_ref": job.commit_ref,
+        "priority": job.priority,
+        "ocr_session_id": job.ocr_session_id,
+        "summary": job.result_summary_json,
+        "warnings": job.warnings_json,
+        "resolved_shas": {
+            "base_sha": snapshot.get("base_sha"),
+            "target_sha": snapshot.get("target_sha"),
+            "commit_sha": snapshot.get("commit_sha"),
+        },
+        "queued_at": job.queued_at.isoformat() if job.queued_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "status_url": f"/api/v1/jobs/{job.id}",
+        "result_resource": f"ocr://jobs/{job.id}/result",
+    }
+
+
+async def ocr_get_job(
+    job_id: str,
+    wait_for_terminal: bool = False,
+    timeout_seconds: int = 300,
+) -> dict[str, Any]:
+    """Get job status and progress.
+
+    With ``wait_for_terminal=True`` the call blocks server-side (async; it
+    does NOT block the server) until the job reaches a terminal status
+    (completed, completed_with_warnings, failed, cancelled, interrupted) or
+    ``timeout_seconds`` elapses (clamped to 1..600, default 300). The
+    response then includes ``terminal`` and ``wait_expired`` flags: when
+    ``wait_expired`` is true the job is still running and you may call again
+    to keep waiting — no client polling loop is needed otherwise.
+    """
+
     factory = get_session_factory()
     async with factory() as session:
         service = JobService(session)
@@ -181,32 +227,26 @@ async def ocr_get_job(job_id: str) -> dict[str, Any]:
             job = await service.get(job_id)
         except ServiceError as exc:
             return _error_payload(exc)
-        snapshot = job.configuration_snapshot_json or {}
-        return {
-            "id": job.id,
-            "status": job.status,
-            "status_message": job.status_message,
-            "mode": job.mode,
-            "source": job.source,
-            "project_id": job.project_id,
-            "base_ref": job.base_ref,
-            "target_ref": job.target_ref,
-            "commit_ref": job.commit_ref,
-            "priority": job.priority,
-            "ocr_session_id": job.ocr_session_id,
-            "summary": job.result_summary_json,
-            "warnings": job.warnings_json,
-            "resolved_shas": {
-                "base_sha": snapshot.get("base_sha"),
-                "target_sha": snapshot.get("target_sha"),
-                "commit_sha": snapshot.get("commit_sha"),
-            },
-            "queued_at": job.queued_at.isoformat() if job.queued_at else None,
-            "started_at": job.started_at.isoformat() if job.started_at else None,
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-            "status_url": f"/api/v1/jobs/{job.id}",
-            "result_resource": f"ocr://jobs/{job.id}/result",
-        }
+        payload = _job_payload(job)
+
+    if not wait_for_terminal:
+        return payload
+
+    if payload["status"] in TERMINAL_STATUSES:
+        terminal = True
+    else:
+        # Session is closed by now — nothing is held while waiting.
+        terminal = await wait_for_job_terminal(job_id, timeout_seconds)
+        async with factory() as session:
+            service = JobService(session)
+            try:
+                job = await service.get(job_id)
+            except ServiceError as exc:
+                return _error_payload(exc)
+            payload = _job_payload(job)
+    payload["terminal"] = terminal
+    payload["wait_expired"] = not terminal
+    return payload
 
 
 async def ocr_get_findings(
@@ -361,24 +401,26 @@ def prompt_review_branch(project: str, base: str = "main", target: str = "") -> 
     return (
         f"Review the changes on branch '{target or '<target>'}' of project "
         f"'{project}' relative to '{base}'. Use ocr_preview_review to see the "
-        f"files, then ocr_submit_review with mode 'range', and poll "
-        f"ocr_get_job until the review completes. Summarize the findings."
+        f"files, then ocr_submit_review with mode 'range', and call ocr_get_job "
+        f"with wait_for_terminal=true until the review completes. Summarize the "
+        f"findings."
     )
 
 
 def prompt_review_commit(project: str, commit: str) -> str:
     return (
         f"Review commit '{commit}' of project '{project}'. Use "
-        f"ocr_submit_review with mode 'commit', poll ocr_get_job until "
-        f"complete, then report the findings via ocr_get_findings."
+        f"ocr_submit_review with mode 'commit', call ocr_get_job with "
+        f"wait_for_terminal=true until complete, then report the findings via "
+        f"ocr_get_findings."
     )
 
 
 def prompt_review_workspace(project: str) -> str:
     return (
         f"Review the current uncommitted workspace changes of project "
-        f"'{project}'. Submit with ocr_submit_review mode 'workspace', poll "
-        f"ocr_get_job, then summarize findings."
+        f"'{project}'. Submit with ocr_submit_review mode 'workspace', call "
+        f"ocr_get_job with wait_for_terminal=true, then summarize findings."
     )
 
 
@@ -407,7 +449,8 @@ def build_mcp_server() -> FastMCP:
         "ocr-control-center",
         instructions=(
             "Submit and manage OpenCodeReview jobs. Submission is async: "
-            "submit, then poll ocr_get_job or read ocr://jobs/{id}/result."
+            "submit, then call ocr_get_job with wait_for_terminal=true to block "
+            "until completion, or read ocr://jobs/{id}/result."
         ),
         streamable_http_path="/",
         json_response=True,
@@ -432,9 +475,16 @@ def build_mcp_server() -> FastMCP:
         name="ocr_submit_review",
         description="Submit a review job asynchronously; returns a durable job id immediately.",
     )(ocr_submit_review)
-    mcp.tool(name="ocr_get_job", description="Get job status and progress.")(
-        ocr_get_job
-    )
+    mcp.tool(
+        name="ocr_get_job",
+        description=(
+            "Get job status and progress. Pass wait_for_terminal=true to block "
+            "server-side until the job reaches a terminal state (completed, "
+            "completed_with_warnings, failed, cancelled, interrupted) or "
+            "timeout_seconds (1-600, default 300) elapses; the response then "
+            "includes 'terminal' and 'wait_expired' flags."
+        ),
+    )(ocr_get_job)
     mcp.tool(
         name="ocr_get_findings", description="Get structured findings for a job."
     )(ocr_get_findings)

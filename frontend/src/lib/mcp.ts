@@ -48,8 +48,9 @@ export const MCP_TOOLS: McpToolDoc[] = [
   },
   {
     name: "ocr_get_job",
-    description: "Get job status and progress.",
-    args: "job_id",
+    description:
+      "Get job status and progress. wait_for_terminal=true blocks server-side until the job reaches a terminal state or the timeout (adds terminal / wait_expired flags).",
+    args: "job_id, wait_for_terminal?, timeout_seconds?",
   },
   {
     name: "ocr_get_findings",
