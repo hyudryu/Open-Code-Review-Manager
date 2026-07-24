@@ -6,8 +6,20 @@ webhook worker, SSE bus, REST API, MCP server, and the built frontend.
 
 from __future__ import annotations
 
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Some Windows machines have a broken registry mapping that makes Python's
+# mimetypes report ".js" as text/plain. Browsers then refuse to execute the
+# module script (strict MIME checking) and the SPA renders a blank page.
+# Force-correct the web-critical types process-wide before StaticFiles is used.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("image/x-icon", ".ico")
+mimetypes.add_type("font/woff2", ".woff2")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
