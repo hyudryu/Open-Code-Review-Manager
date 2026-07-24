@@ -55,7 +55,7 @@ function Sidebar() {
       >
         <div className={styles.brand}>
           <span className={styles.brandMark}>OC</span>
-          <span>OCR Control Center</span>
+          <span>OCR Manager</span>
         </div>
         <div className={styles.nav}>
           {NAV.map((item) => (
@@ -113,7 +113,7 @@ export function AppLayout() {
           </Button>
           <span className={styles.brand}>
             <span className={styles.brandMark}>OC</span>
-            <span>OCR Control Center</span>
+            <span>OCR Manager</span>
           </span>
         </div>
         <main className={styles.content} id="main">

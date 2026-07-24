@@ -179,7 +179,7 @@ class DiagnosticsService(ServiceBase):
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(
                 "README.txt",
-                "OpenCodeReview Control Center diagnostics bundle\n"
+                "OpenCodeReview Manager diagnostics bundle\n"
                 "Sanitized by construction: no credentials (only secret\n"
                 "references are ever stored), no source file content, log\n"
                 f"excerpts capped at {self.BUNDLE_LOG_CAP_BYTES} bytes and\n"

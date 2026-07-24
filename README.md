@@ -1,4 +1,4 @@
-# OpenCodeReview Control Center
+# OpenCodeReview Manager
 
 A local-first web control plane for [Alibaba OpenCodeReview](https://github.com/alibaba/open-code-review) (`ocr`).
 It manages projects, review profiles, a durable review queue, live job progress,

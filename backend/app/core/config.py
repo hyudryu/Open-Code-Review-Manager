@@ -1,4 +1,4 @@
-"""Application settings for the OCR Control Center backend.
+"""Application settings for the OCR Manager backend.
 
 All settings are overridable through environment variables prefixed with
 ``OCR_CC_`` or through a ``.env`` file in the backend directory. Paths are

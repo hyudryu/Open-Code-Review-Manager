@@ -1,6 +1,6 @@
 # Architecture
 
-OpenCodeReview Control Center is a local-first, single-process application:
+OpenCodeReview Manager is a local-first, single-process application:
 one Python process serves the REST API, the SSE event streams, the MCP
 endpoint, the built React frontend, and runs the queue + webhook workers
 in-process. SQLite (WAL) is the only datastore.

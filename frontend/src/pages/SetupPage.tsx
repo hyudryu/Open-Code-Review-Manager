@@ -175,7 +175,7 @@ export function SetupPage() {
   return (
     <div className={styles.wizard}>
       <h1 className={layout.pageTitle} style={{ marginBottom: 4 }}>
-        Welcome to OCR Control Center
+        Welcome to OCR Manager
       </h1>
       <p className={layout.muted} style={{ marginBottom: 24 }}>
         A short guided setup — environment, one project, one provider, one profile.

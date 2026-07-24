@@ -50,6 +50,6 @@ if [[ -f .env ]]; then
   . ./.env; set +a
 fi
 
-echo "[start] OpenCodeReview Control Center → http://127.0.0.1:${OCR_CC_PORT:-8787}"
+echo "[start] OpenCodeReview Manager → http://127.0.0.1:${OCR_CC_PORT:-8787}"
 cd backend
 exec "../$VENV_PY" -m app

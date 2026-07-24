@@ -102,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await dispose_engine()
 
     app = FastAPI(
-        title="OpenCodeReview Control Center",
+        title="OpenCodeReview Manager",
         version=settings.app_version,
         lifespan=lifespan,
     )

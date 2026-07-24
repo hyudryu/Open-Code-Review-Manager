@@ -68,7 +68,7 @@ if (Test-Path (Join-Path $Root ".env")) {
 
 $port = $env:OCR_CC_PORT
 if (-not $port) { $port = "8787" }
-Write-Host "[start] OpenCodeReview Control Center -> http://127.0.0.1:$port"
+Write-Host "[start] OpenCodeReview Manager -> http://127.0.0.1:$port"
 Set-Location (Join-Path $Root "backend")
 & $VenvPy -m app
 exit $LASTEXITCODE

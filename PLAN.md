@@ -1,4 +1,4 @@
-# OpenCodeReview Control Center — Implementation Plan
+# OpenCodeReview Manager — Implementation Plan
 
 Source of truth: `docs/SPEC.md` (verbatim copy of the owner's spec).
 Upstream engine: Alibaba OpenCodeReview CLI (`ocr`), repo `alibaba/open-code-review`,

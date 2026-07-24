@@ -1,5 +1,5 @@
 @echo off
-rem OpenCodeReview Control Center - one-click launcher (Windows)
+rem OpenCodeReview Manager - one-click launcher (Windows)
 rem Double-click or run: start.bat [--build]
 setlocal
 set "ROOT=%~dp0"

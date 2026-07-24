@@ -1,4 +1,4 @@
-# Backend — OCR Control Center
+# Backend — OCR Manager
 
 Local-first FastAPI control plane for Alibaba OpenCodeReview (`ocr`).
 Stage 1 contains the foundation: settings, structured logging with secret
