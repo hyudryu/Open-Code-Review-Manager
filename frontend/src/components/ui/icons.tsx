@@ -82,6 +82,20 @@ export const IconIntegrations = (p: IconProps) =>
     <path d="M9 19h4" />
   </>);
 
+export const IconMcp = (p: IconProps) =>
+  base(p, <>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    <path d="M10 6.5h5.5a2 2 0 0 1 2 2V14" />
+    <path d="M14 17.5H8.5a2 2 0 0 1-2-2V10" />
+  </>);
+
+export const IconDocs = (p: IconProps) =>
+  base(p, <>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+  </>);
+
 export const IconSettings = (p: IconProps) =>
   base(p, <>
     <circle cx="12" cy="12" r="3" />

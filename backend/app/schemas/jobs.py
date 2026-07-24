@@ -212,3 +212,16 @@ class HealthOut(BaseModel):
     status: str
     version: str
     ocr_status: str
+
+
+class McpStatusOut(BaseModel):
+    """Live status of the in-process MCP server (SPEC §17)."""
+
+    enabled: bool
+    transport: str
+    path: str
+    port: int
+    url: str
+    tool_count: int
+    resource_count: int
+    prompt_count: int

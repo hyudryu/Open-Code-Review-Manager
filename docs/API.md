@@ -1,8 +1,9 @@
 # REST API
 
 Base URL: `http://127.0.0.1:8787/api/v1` (port configurable via `OCR_CC_PORT`).
-All requests/responses are JSON unless noted. Interactive docs: `/docs`
-(Swagger UI) and `/openapi.json`.
+All requests/responses are JSON unless noted. Interactive docs: `/api/docs`
+(Swagger UI) and `/openapi.json`. (`/docs` belongs to the in-app documentation
+page.)
 
 **Conventions**
 
@@ -61,7 +62,9 @@ POST   /providers                        → 201; body below
 GET    /providers/{id}
 PATCH  /providers/{id}                   {"credential": null} clears the stored credential
 DELETE /providers/{id}
-POST   /providers/{id}/test              connection test via `ocr llm test` → {"ok","message","latency_ms"}
+POST   /providers/{id}/test              direct minimal ping ("Reply with exactly: hi") against the
+                                         endpoint — requires ?model_id=… → {"ok","reply","elapsed_ms",
+                                         "http_status","message","detail","next_action"}
 POST   /providers/{id}/discover-models   query the endpoint's model list → discovered models upserted
 GET    /providers/{id}/models            list models for the provider
 POST   /providers/{id}/models            manual model {"model_id"} → 201
@@ -195,6 +198,7 @@ GET  /health                       {"status":"ok","version","ocr_status"}
 GET  /system/info                full diagnostics snapshot (SPEC §30)
 GET  /system/ocr                 OCR detection + capabilities; "ocr_not_found" when absent
 POST /system/ocr/test            force re-probe
+GET  /system/mcp                 MCP server status: transport, URL, tool/resource/prompt counts
 GET  /system/diagnostics/bundle  sanitized zip download (no credentials, no source
                                  content; log excerpts capped at 16 KB and redacted)
 GET  /system/python              interpreter info

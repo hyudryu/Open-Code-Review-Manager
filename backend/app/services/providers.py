@@ -8,7 +8,6 @@ provider row with actionable detail (SPEC §9 "Model Discovery").
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +19,7 @@ from app.db import models
 from app.ocr.models import ProviderResolution
 from app.services.deps import ServiceBase
 from app.services.errors import ConflictError, NotFoundError, ValidationFailedError
+from app.services.llm_ping import ConnectionTestResult, ping_llm
 
 logger = get_logger(__name__)
 
@@ -203,21 +203,37 @@ class ProviderService(ServiceBase):
     # -- connection test -------------------------------------------------------
 
     async def test_connection(
-        self, provider_id: str, *, model_id: str | None = None
-    ):
-        """Run ``ocr llm test`` under an isolated config (SPEC §9)."""
+        self,
+        provider_id: str,
+        *,
+        model_id: str | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> ConnectionTestResult:
+        """Ping the endpoint directly with a minimal real request (SPEC §9).
+
+        Sends "Reply with exactly: hi" to the configured endpoint via
+        :func:`ping_llm` instead of shelling out to ``ocr llm test`` — this
+        works for unauthenticated local servers (no API key saved). An
+        explicit model selection is required; nothing is written to OCR
+        config and the credential is never logged.
+        """
 
         provider = await self.get(provider_id)
         resolution = await self.resolve(provider, model_id=model_id)
-        probe_home = self.settings.resolved_data_dir / "llm-probes" / uuid.uuid4().hex
-        probe_home.mkdir(parents=True, exist_ok=True)
-        try:
-            return await self.adapter.test_llm(probe_home, resolution)
-        finally:
-            # Probe homes contain no secrets (config excludes tokens) but clean up anyway.
-            import shutil
-
-            shutil.rmtree(probe_home, ignore_errors=True)
+        if not (resolution.base_url or "").strip():
+            raise ValidationFailedError(
+                "This provider has no base URL configured.",
+                next_action="Set the base URL on the provider, then retry.",
+            )
+        if not resolution.model:
+            raise ValidationFailedError(
+                "Select a model to run the connection test.",
+                next_action=(
+                    "Pick one of the provider's models in the test panel, "
+                    "then retry."
+                ),
+            )
+        return await ping_llm(resolution, http_client=http_client)
 
     # -- model discovery --------------------------------------------------------
 

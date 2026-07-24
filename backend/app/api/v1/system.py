@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from app.api.deps import diagnostics_service, settings_service
-from app.schemas.jobs import HealthOut, SettingsUpdate
+from app.core.config import get_settings
+from app.schemas.jobs import HealthOut, McpStatusOut, SettingsUpdate
 from app.services.deps import get_ocr_adapter
 from app.services.settings import DiagnosticsService, SettingsService
 
@@ -22,12 +23,37 @@ router = APIRouter(tags=["system"])
 async def health(request: Request):
     adapter = get_ocr_adapter()
     status = await adapter.detect()
-    from app.core.config import get_settings
-
     return HealthOut(
         status="ok",
         version=get_settings().app_version,
         ocr_status=status.status,
+    )
+
+
+@router.get("/system/mcp", response_model=McpStatusOut)
+async def mcp_status(request: Request) -> McpStatusOut:
+    """Live MCP server status; counts introspected from the FastMCP server."""
+
+    settings = get_settings()
+    server = getattr(request.app.state, "mcp_server", None)
+    if server is None:
+        # Fallback for apps constructed without create_app wiring.
+        from app.mcp.server import build_mcp_server
+
+        server = build_mcp_server()
+    tools = await server.list_tools()
+    resources = await server.list_resources()
+    templates = await server.list_resource_templates()
+    prompts = await server.list_prompts()
+    return McpStatusOut(
+        enabled=True,
+        transport="streamable-http",
+        path="/mcp",
+        port=settings.port,
+        url=f"http://{settings.host}:{settings.port}/mcp",
+        tool_count=len(tools),
+        resource_count=len(resources) + len(templates),
+        prompt_count=len(prompts),
     )
 
 

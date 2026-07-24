@@ -34,6 +34,7 @@ import {
   toast,
 } from "../components/ui";
 import type { ProviderTestResult } from "../types";
+import { formatProviderTestSuccess } from "../lib/mcp";
 import layout from "../layouts/layout.module.css";
 
 interface Preset {
@@ -408,8 +409,8 @@ export function ProviderEditorPage() {
           <section className={`${layout.section} ${layout.stack}`} aria-label="Connection test">
             <h2 className={layout.sectionTitle} style={{ margin: 0 }}>Connection test</h2>
             <p className={layout.small}>
-              Runs <code>ocr llm test</code> in an isolated configuration — your key is never
-              logged or displayed.
+              Sends a real minimal request to the configured endpoint asking the model to
+              reply. No LLM config is written; your key is never logged or displayed.
             </p>
             <div className={layout.row}>
               <select
@@ -427,17 +428,27 @@ export function ProviderEditorPage() {
                   fontSize: 13,
                 }}
               >
-                <option value="">Default model</option>
+                <option value="">Select a model…</option>
                 {modelList.map((m) => (
                   <option key={m.id} value={m.model_id}>
                     {m.display_name ?? m.model_id}
                   </option>
                 ))}
               </select>
-              <Button variant="secondary" onClick={runTest} disabled={testProvider.isPending}>
+              <Button
+                variant="secondary"
+                onClick={runTest}
+                disabled={testProvider.isPending || !testModel}
+              >
                 {testProvider.isPending ? "Testing…" : "Test connection"}
               </Button>
             </div>
+            {modelList.length === 0 ? (
+              <p className={layout.small} style={{ margin: 0 }}>
+                Add or discover a model first — the test sends a real request with the
+                selected model.
+              </p>
+            ) : null}
             {testResult ? (
               <div
                 className={layout.stack}
@@ -451,9 +462,15 @@ export function ProviderEditorPage() {
               >
                 <span style={{ font: "var(--text-label)", fontSize: 13, color: testResult.ok ? "var(--success)" : "var(--danger)" }}>
                   {testResult.ok
-                    ? `Connection successful${testResult.elapsed_ms != null ? ` in ${Math.round(testResult.elapsed_ms)} ms` : ""}`
+                    ? formatProviderTestSuccess(testResult)
                     : (testResult.message ?? "Connection failed")}
                 </span>
+                {testResult.detail ? (
+                  <span className={layout.small}>{testResult.detail}</span>
+                ) : null}
+                {testResult.next_action ? (
+                  <span className={layout.small}>Next: {testResult.next_action}</span>
+                ) : null}
                 {testResult.exit_code != null ? (
                   <span className={layout.small}>exit code {testResult.exit_code}</span>
                 ) : null}

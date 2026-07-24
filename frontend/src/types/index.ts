@@ -102,6 +102,11 @@ export interface ProviderTestResult {
   stdout: string;
   stderr: string;
   message: string | null;
+  /** Sanitized excerpt of the model's reply (direct ping path). */
+  reply?: string | null;
+  http_status?: number | null;
+  detail?: string | null;
+  next_action?: string | null;
 }
 
 // --- review profiles --------------------------------------------------------
@@ -395,6 +400,17 @@ export interface Health {
   status: string;
   version: string;
   ocr_status: string;
+}
+
+export interface McpStatus {
+  enabled: boolean;
+  transport: string;
+  path: string;
+  port: number;
+  url: string;
+  tool_count: number;
+  resource_count: number;
+  prompt_count: number;
 }
 
 export interface SystemInfo {

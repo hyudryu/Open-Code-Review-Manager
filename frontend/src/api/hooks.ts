@@ -18,6 +18,7 @@ import type {
   JobEventRecord,
   JobLog,
   JobPreview,
+  McpStatus,
   OCRStatus,
   Page,
   PreviewFile,
@@ -39,6 +40,7 @@ export const qk = {
   health: ["health"] as const,
   systemInfo: ["system", "info"] as const,
   systemOcr: ["system", "ocr"] as const,
+  systemMcp: ["system", "mcp"] as const,
   settings: ["settings"] as const,
   folders: ["folders"] as const,
   projects: ["projects"] as const,
@@ -87,6 +89,15 @@ export function useSystemOcr(options?: Partial<UseQueryOptions<OCRStatus>>) {
   return useQuery({
     queryKey: qk.systemOcr,
     queryFn: () => api.get<OCRStatus>("/api/v1/system/ocr"),
+    staleTime: 60_000,
+    ...options,
+  });
+}
+
+export function useSystemMcp(options?: Partial<UseQueryOptions<McpStatus>>) {
+  return useQuery({
+    queryKey: qk.systemMcp,
+    queryFn: () => api.get<McpStatus>("/api/v1/system/mcp"),
     staleTime: 60_000,
     ...options,
   });

@@ -16,6 +16,8 @@ import { ProvidersPage } from "./pages/ProvidersPage";
 import { ProviderEditorPage } from "./pages/ProviderEditorPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
+import { McpPage } from "./pages/McpPage";
+import { DocsPage } from "./pages/DocsPage";
 import { WebhooksPage } from "./pages/WebhooksPage";
 import { DeliveriesPage } from "./pages/DeliveriesPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -46,6 +48,8 @@ export function App() {
         <Route path="integrations" element={<IntegrationsPage />} />
         <Route path="integrations/webhooks" element={<WebhooksPage />} />
         <Route path="integrations/deliveries" element={<DeliveriesPage />} />
+        <Route path="mcp" element={<McpPage />} />
+        <Route path="docs" element={<DocsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="diagnostics" element={<DiagnosticsPage />} />
         <Route path="404" element={<NotFoundPage />} />

@@ -4,7 +4,9 @@ import { useQueue, useSystemOcr } from "../api/hooks";
 import { useUiStore } from "../hooks/store";
 import { Button, StatusDot } from "../components/ui";
 import {
+  IconDocs,
   IconIntegrations,
+  IconMcp,
   IconMenu,
   IconOverview,
   IconProfiles,
@@ -24,6 +26,8 @@ const NAV = [
   { to: "/providers", label: "Providers", icon: <IconProviders size={19} /> },
   { to: "/profiles", label: "Profiles", icon: <IconProfiles size={19} /> },
   { to: "/integrations", label: "Integrations", icon: <IconIntegrations size={19} /> },
+  { to: "/mcp", label: "MCP", icon: <IconMcp size={19} /> },
+  { to: "/docs", label: "Docs", icon: <IconDocs size={19} /> },
   { to: "/settings", label: "Settings", icon: <IconSettings size={19} /> },
 ];
 

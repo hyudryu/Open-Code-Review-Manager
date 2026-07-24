@@ -78,6 +78,19 @@ async def test_system_endpoints(client) -> None:
     assert "python_version" in body
 
 
+async def test_mcp_status_endpoint(client) -> None:
+    response = await client.get("/api/v1/system/mcp")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["transport"] == "streamable-http"
+    assert body["path"] == "/mcp"
+    assert body["url"].endswith("/mcp")
+    assert body["tool_count"] == 10
+    assert body["resource_count"] == 7
+    assert body["prompt_count"] == 5
+
+
 async def test_settings_roundtrip(client) -> None:
     response = await client.get("/api/v1/settings")
     assert response.status_code == 200

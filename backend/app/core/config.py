@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # --- queue limits ------------------------------------------------------
     global_concurrency: int = 1
     per_project_concurrency: int = 1
-    default_provider_concurrency: int = 2
+    default_provider_concurrency: int = 1
     max_queued_jobs: int = 200
     cancel_grace_seconds: float = 10.0
     session_poll_seconds: float = 1.0

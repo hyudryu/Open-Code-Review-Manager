@@ -105,7 +105,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="OpenCodeReview Manager",
         version=settings.app_version,
         lifespan=lifespan,
+        # Interactive API docs live under /api/docs — the SPA owns /docs.
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect",
     )
+    app.state.mcp_server = mcp_server
 
     app.add_middleware(CSRFMiddleware, token=settings.csrf_token)
     app.add_middleware(
@@ -117,7 +122,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     install_error_handlers(app)
     app.include_router(api_router)
-    app.mount("/mcp", mcp_server.streamable_http_app())
+
+    # The SPA has an /mcp page too: browser navigations (Accept: text/html)
+    # get index.html; MCP protocol traffic (POST / event-stream GET) passes
+    # through to the real MCP app. Starlette Mounts only match "/mcp/…", so
+    # the exact "/mcp" path is registered as a plain route that normalizes
+    # the scope to the mounted shape the transport expects. (Route treats
+    # class instances as raw ASGI apps; plain functions would be wrapped as
+    # request→response endpoints.)
+    mcp_http_app = mcp_server.streamable_http_app()
+
+    class _McpDispatch:
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                if (
+                    scope.get("method") == "GET"
+                    and _FRONTEND_DIST.is_dir()
+                    and b"text/html"
+                    in dict(scope.get("headers") or []).get(b"accept", b"")
+                ):
+                    await FileResponse(_FRONTEND_DIST / "index.html")(
+                        scope, receive, send
+                    )
+                    return
+                if scope.get("path") == "/mcp":
+                    scope = dict(scope)
+                    scope["path"] = "/mcp/"
+                    scope["root_path"] = (scope.get("root_path") or "") + "/mcp"
+            await mcp_http_app(scope, receive, send)
+
+    mcp_dispatch = _McpDispatch()
+    app.add_route(
+        "/mcp", mcp_dispatch, methods=["GET", "POST", "DELETE"],
+        include_in_schema=False,
+    )
+    app.mount("/mcp", mcp_dispatch)
 
     # Built frontend (SPA) — served when Stage 3 output exists.
     if _FRONTEND_DIST.is_dir():

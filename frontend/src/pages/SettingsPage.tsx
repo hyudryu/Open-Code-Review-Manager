@@ -22,6 +22,7 @@ import {
   Tabs,
   toast,
 } from "../components/ui";
+import { IconExternal } from "../components/ui/icons";
 import layout from "../layouts/layout.module.css";
 
 function SettingRow({
@@ -175,6 +176,24 @@ export function SettingsPage() {
         <Link to="/diagnostics">
           <Button variant="secondary" size="small">Open diagnostics</Button>
         </Link>
+      </SettingRow>
+      <SettingRow label="Repository" help="Source code, issues, and releases on GitHub.">
+        <a
+          href="https://github.com/hyudryu/Open-Code-Review-Manager"
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            color: "var(--accent)",
+            font: "var(--text-body)",
+            fontSize: 13,
+          }}
+        >
+          hyudryu/Open-Code-Review-Manager
+          <IconExternal size={13} />
+        </a>
       </SettingRow>
     </section>
   );

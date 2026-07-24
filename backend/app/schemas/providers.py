@@ -85,6 +85,11 @@ class ProviderTestOut(BaseModel):
     stdout: str = ""
     stderr: str = ""
     message: str | None = None
+    # Direct-ping fields (llm_ping); exit_code/stdout/stderr are legacy.
+    reply: str | None = None
+    http_status: int | None = None
+    detail: str | None = None
+    next_action: str | None = None
 
 
 class ProfileCreate(BaseModel):
