@@ -21,6 +21,7 @@ import {
   useResumeQueue,
   useRetryJob,
 } from "../api/hooks";
+import { useSpeedLearner } from "../hooks/use-speed-learner";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Button,
@@ -64,6 +65,7 @@ export function QueuePage() {
   const duplicateJob = useDuplicateJob();
   const pauseJob = usePauseJob();
   const resumePaused = useResumePausedJob();
+  const { eta, perJob, queuedCount, activeCount } = useSpeedLearner();
 
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -319,6 +321,7 @@ export function QueuePage() {
           <h2 className={styles.queueSectionTitle}>
             Queued — {queuedJobs.length}
             {optimisticOrder ? <span style={{ textTransform: "none" }}>(saving order…)</span> : null}
+            {eta ? <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>(ETA: ~{eta})</span> : null}
           </h2>
           {queuedJobs.length === 0 ? (
             <div className={layout.section}>

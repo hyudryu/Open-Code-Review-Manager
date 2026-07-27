@@ -1,12 +1,15 @@
 /** Project list (SPEC §20) — folders as collapsible groups, refined table. */
 
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
+  useCreateFolder,
   useCreateProject,
   useDeleteFolder,
   useFolders,
   useProjects,
+  useRegisterScanned,
+  useScanFolder,
 } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
 import {
@@ -14,9 +17,11 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  FolderSelector,
   Input,
   Menu,
   Modal,
+  Select,
   Skeleton,
   StatusDot,
   Table,
@@ -35,10 +40,15 @@ import {
   IconPlus,
 } from "../components/ui/icons";
 import { relativeTime } from "../lib/format";
-import type { Folder, Project } from "../types";
+import type { Folder, FolderScan, Project, ScannedRepo } from "../types";
 import layout from "../layouts/layout.module.css";
+import styles from "./pages.module.css";
 
-function AddProjectDialog({
+// --- Unified Add dialog -----------------------------------------------------
+
+type AddMode = "project" | "scan";
+
+function AddDialog({
   open,
   onOpenChange,
   folders,
@@ -47,83 +57,259 @@ function AddProjectDialog({
   onOpenChange: (open: boolean) => void;
   folders: Folder[];
 }) {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<AddMode>("project");
   const [path, setPath] = useState("");
-  const [folderId, setFolderId] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const create = useCreateProject();
 
-  async function submit() {
+  // Single-project state
+  const createProject = useCreateProject();
+
+  // Scan-folder state
+  const createFolder = useCreateFolder();
+  const scanFolder = useScanFolder();
+  const register = useRegisterScanned();
+  const [depth, setDepth] = useState("2");
+  const [scan, setScan] = useState<FolderScan | null>(null);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+
+  const scanning = createFolder.isPending || scanFolder.isPending;
+
+  async function addProject() {
     setError(null);
     try {
-      const project = await create.mutateAsync({
+      const project = await createProject.mutateAsync({
         absolute_path: path.trim(),
-        folder_id: folderId || null,
+        folder_id: null,
       });
       toast.success(`Added ${project.display_name}`);
       onOpenChange(false);
       setPath("");
+      setMode("project");
     } catch (err) {
       setError(err);
     }
   }
 
+  async function runScan() {
+    setError(null);
+    setScan(null);
+    const trimmed = path.trim();
+    if (!trimmed) {
+      setError(new Error("Enter an absolute directory path to scan."));
+      return;
+    }
+    try {
+      const folder = await createFolder.mutateAsync({
+        display_name: trimmed.split(/[\\/]/).filter(Boolean).pop() || trimmed,
+        absolute_path: trimmed,
+        scan_depth: Number.parseInt(depth, 10),
+      });
+      const result = await scanFolder.mutateAsync(folder.id);
+      setScan(result);
+      setExcluded(new Set());
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function registerSelected() {
+    if (!scan) return;
+    const selected = scan.repos.filter(
+      (r) => !r.already_registered && !excluded.has(r.path),
+    );
+    if (selected.length === 0) {
+      toast.info("Nothing to register");
+      return;
+    }
+    try {
+      const created = await register.mutateAsync({
+        folderId: scan.folder_id,
+        paths: selected.map((r) => r.path),
+      });
+      toast.success(`Registered ${created.length} project${created.length === 1 ? "" : "s"}`);
+      onOpenChange(false);
+      setPath("");
+      setMode("project");
+      setScan(null);
+      navigate("/projects");
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  const newRepos = scan?.repos.filter((r) => !r.already_registered) ?? [];
+  const selectedCount = newRepos.filter((r) => !excluded.has(r.path)).length;
+
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Add project"
-      description="Register a single Git repository by its absolute path. The repository is validated with Git before it is added."
+      title="Add"
+      description={
+        mode === "project"
+          ? "Register a single Git repository by its absolute path."
+          : "Scan a directory for Git repositories and register them."
+      }
       footer={
         <>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={submit} disabled={create.isPending || !path.trim()}>
-            {create.isPending ? "Validating…" : "Add project"}
-          </Button>
+          {mode === "project" ? (
+            <Button
+              variant="primary"
+              onClick={addProject}
+              disabled={createProject.isPending || !path.trim()}
+            >
+              {createProject.isPending ? "Validating…" : "Add project"}
+            </Button>
+          ) : scan ? (
+            <Button
+              variant="primary"
+              onClick={registerSelected}
+              disabled={register.isPending || selectedCount <= 0}
+            >
+              {register.isPending ? "Registering…" : `Register ${selectedCount} project${selectedCount === 1 ? "" : "s"}`}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={runScan}
+              disabled={scanning || !path.trim()}
+            >
+              {scanning ? "Scanning…" : "Scan for repositories"}
+            </Button>
+          )}
         </>
       }
     >
       <div className={layout.stack}>
-        <Input
-          label="Repository path"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          placeholder="C:\code\my-repo"
-          help="Must be a Git working tree — bare repositories are rejected for review execution."
-          mono
-          required
-        />
-        <label className={layout.small}>
-          Folder (optional)
-          <select
-            className=""
-            style={{
-              width: "100%",
-              height: 32,
-              marginTop: 4,
-              borderRadius: 8,
-              border: "1px solid var(--border-strong)",
-              background: "var(--bg-surface)",
-              color: "var(--text-primary)",
-              padding: "0 12px",
-            }}
-            value={folderId}
-            onChange={(e) => setFolderId(e.target.value)}
+        {/* Mode toggle */}
+        <div className={layout.row} style={{ gap: 8 }}>
+          <Button
+            variant={mode === "project" ? "primary" : "tertiary"}
+            size="small"
+            onClick={() => { setMode("project"); setScan(null); }}
           >
-            <option value="">No folder</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.display_name}
+            <IconPlus size={14} /> Single project
+          </Button>
+          <Button
+            variant={mode === "scan" ? "primary" : "tertiary"}
+            size="small"
+            onClick={() => { setMode("scan"); setScan(null); }}
+          >
+            <IconFolder size={14} /> Scan folder
+          </Button>
+        </div>
+
+        {/* Path input with folder picker */}
+        <div className={layout.row} style={{ gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <Input
+              label="Path"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder={mode === "project" ? "C:\\code\\my-repo" : "C:\\code\\work"}
+              mono
+              required
+              help={mode === "project" ? "Must be a Git working tree — bare repositories are rejected." : "Absolute path to a directory containing Git repositories."}
+            />
+          </div>
+          <div style={{ paddingTop: 28 }}>
+            <FolderSelector
+              label="Select folder"
+              onSelect={(selectedPath) => setPath(selectedPath)}
+            />
+          </div>
+        </div>
+
+        {/* Scan-depth selector (scan mode only) */}
+        {mode === "scan" && !scan ? (
+          <Select
+            label="Scan depth"
+            value={depth}
+            onChange={(e) => setDepth(e.target.value)}
+            help="How many directory levels below the root to search. Default: 2."
+          >
+            {[0, 1, 2, 3, 4].map((d) => (
+              <option key={d} value={d}>
+                {d === 0 ? "0 — this directory only" : `${d} level${d === 1 ? "" : "s"}`}
               </option>
             ))}
-          </select>
-        </label>
-        {error ? <ErrorState title="Could not add project" error={error} /> : null}
+          </Select>
+        ) : null}
+
+        {/* Scan results */}
+        {mode === "scan" && scan ? (
+          <>
+            {scan.errors.length > 0 ? (
+              <div className={styles.warningBox}>
+                <span>
+                  {scan.errors.length} location{scan.errors.length === 1 ? "" : "s"} could not be read and were skipped.
+                </span>
+              </div>
+            ) : null}
+            {scan.repos.length === 0 ? (
+              <p className={layout.muted}>
+                No Git repositories found within the scan depth. Try increasing the depth.
+              </p>
+            ) : (
+              <ul className={layout.stack} style={{ gap: 4, maxHeight: 280, overflowY: "auto" }}>
+                {scan.repos.map((repo) => {
+                  const isExcluded = excluded.has(repo.path);
+                  return (
+                    <li key={repo.path} className={layout.row} style={{ flexWrap: "nowrap", gap: 12 }}>
+                      <input
+                        type="checkbox"
+                        id={`repo-${repo.path}`}
+                        checked={!isExcluded && !repo.already_registered}
+                        disabled={repo.already_registered}
+                        onChange={(e) => {
+                          setExcluded((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.delete(repo.path);
+                            else next.add(repo.path);
+                            return next;
+                          });
+                        }}
+                        aria-label={`Include ${repo.name}`}
+                      />
+                      <label htmlFor={`repo-${repo.path}`} style={{ flex: 1, minWidth: 0 }}>
+                        <span className={layout.monoPath} style={{ fontSize: 12.5 }}>
+                          {repo.path}
+                        </span>
+                      </label>
+                      {repo.already_registered ? (
+                        <StatusDot tone="muted" label="registered" />
+                      ) : repo.has_git_file ? (
+                        <StatusDot tone="accent" label="worktree" />
+                      ) : (
+                        <StatusDot tone="ok" label="repo" />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <Button
+              variant="tertiary"
+              size="small"
+              onClick={() => setScan(null)}
+              style={{ alignSelf: "flex-start" }}
+            >
+              Discard scan
+            </Button>
+          </>
+        ) : null}
+
+        {error ? <ErrorState title={mode === "project" ? "Could not add project" : "Scan failed"} error={error} /> : null}
       </div>
     </Modal>
   );
 }
+
+// --- Project row/table ------------------------------------------------------
 
 function ProjectRow({ project }: { project: Project }) {
   const navigate = useNavigate();
@@ -153,14 +339,15 @@ function ProjectRow({ project }: { project: Project }) {
   );
 }
 
+// --- Page -------------------------------------------------------------------
+
 export function ProjectsPage() {
-  const navigate = useNavigate();
   const projects = useProjects();
   const folders = useFolders();
   const deleteFolder = useDeleteFolder();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [addOpen, setAddOpen] = useState(false);
   const [folderToRemove, setFolderToRemove] = useState<Folder | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const grouped = useMemo(() => {
     const byFolder = new Map<string | null, Project[]>();
@@ -195,14 +382,9 @@ export function ProjectsPage() {
         title="Projects"
         subtitle="Git repositories registered for review, grouped by folder."
         actions={
-          <>
-            <Button variant="secondary" onClick={() => setAddOpen(true)}>
-              <IconPlus size={14} /> Add project
-            </Button>
-            <Button variant="primary" onClick={() => navigate("/projects/new-folder")}>
-              <IconFolder size={14} /> Add folder
-            </Button>
-          </>
+          <Button variant="primary" onClick={() => setAddOpen(true)}>
+            <IconPlus size={14} /> Add
+          </Button>
         }
       />
 
@@ -219,10 +401,10 @@ export function ProjectsPage() {
           <EmptyState
             icon={<IconFolder size={32} />}
             title="No projects yet"
-            body="Add a folder to discover multiple repositories at once, or register a single repository directly."
+            body="Add a single project or scan a folder to discover repositories."
             action={
-              <Button variant="primary" onClick={() => navigate("/projects/new-folder")}>
-                <IconFolder size={14} /> Add folder
+              <Button variant="primary" onClick={() => setAddOpen(true)}>
+                <IconPlus size={14} /> Add
               </Button>
             }
           />
@@ -279,8 +461,7 @@ export function ProjectsPage() {
               {!collapsed.has(folder.id) ? (
                 list.length === 0 ? (
                   <p className={layout.small} style={{ padding: "4px 0 12px 24px" }}>
-                    No projects registered from this folder yet.{" "}
-                    <Link to="/projects/new-folder">Rescan</Link>
+                    No projects registered from this folder yet.
                   </p>
                 ) : (
                   <ProjectTable projects={list} />
@@ -299,7 +480,7 @@ export function ProjectsPage() {
         </div>
       )}
 
-      <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} folders={folders.data ?? []} />
+      <AddDialog open={addOpen} onOpenChange={setAddOpen} folders={folders.data ?? []} />
       <ConfirmDialog
         open={folderToRemove !== null}
         onOpenChange={(open) => {

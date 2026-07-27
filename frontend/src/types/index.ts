@@ -139,7 +139,7 @@ export interface ReviewProfile {
 
 // --- jobs / queue -----------------------------------------------------------
 
-export type JobMode = "range" | "commit" | "workspace" | "pr";
+export type JobMode = "range" | "commit" | "workspace" | "pr" | "scan";
 export type JobStatus =
   | "queued"
   | "preparing"
