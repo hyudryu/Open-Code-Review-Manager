@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useHealth,
+  useOcrUpdateStatus,
   useReprobeOcr,
   useSettings,
   useSystemOcr,
@@ -137,10 +138,26 @@ export function SettingsPage() {
   const update = useUpdateSettings();
   const health = useHealth();
   const ocr = useSystemOcr();
+  const ocrUpdate = useOcrUpdateStatus();
   const reprobe = useReprobeOcr();
   const { themePreference, setThemePreference } = useUiStore();
   const [ocrPath, setOcrPath] = useState("");
   const [gitPath, setGitPath] = useState("");
+
+  function openUpdateCommand() {
+    const cmd = ocrUpdate.data?.install_command ?? "npm i -g @alibaba-group/open-code-review";
+    const isWin = typeof window !== "undefined" && /win/i.test(navigator.userAgent);
+    if (isWin) {
+      // Open a new CMD window with the install command.
+      const url = `wt.exe ${cmd} || cmd.exe /k ${cmd}`;
+      // Fallback: try to open the command in a new terminal via shell URI.
+      window.open(`shell:wt.exe /k ${encodeURIComponent(cmd)}`);
+    } else {
+      // Try to open a terminal with the command (works on most Linux desktops).
+      window.open(`shell:x-terminal-emulator -e ${encodeURIComponent(cmd)}`);
+    }
+    toast.info("Opening terminal to run:", cmd);
+  }
 
   useEffect(() => {
     if (settings.data) {
@@ -236,7 +253,42 @@ export function SettingsPage() {
               </code>
             </dd>
             <dt>Version</dt>
-            <dd>{ocr.data.version ?? "—"}</dd>
+            <dd>
+              <span>
+                {ocr.data.version ?? "—"}
+                {ocr.data.status === "ok" && ocrUpdate.data?.latest_version ? (
+                  <>
+                    {ocrUpdate.data.update_available ? (
+                      <span className={layout.small} style={{ marginLeft: 8, color: "var(--accent)" }}>
+                        {ocrUpdate.data.latest_version} available
+                      </span>
+                    ) : (
+                      <Badge tone="success">latest</Badge>
+                    )}
+                  </>
+                ) : null}
+              </span>
+            </dd>
+            {ocr.data.status === "ok" && ocrUpdate.data?.update_available && (
+              <>
+                <dt>Update available</dt>
+                <dd>
+                  <div className={layout.row} style={{ gap: 8 }}>
+                    <Button
+                      variant="primary"
+                      size="small"
+                      onClick={openUpdateCommand}
+                      disabled={ocrUpdate.isFetching}
+                    >
+                      <IconExternal size={14} /> Update to {ocrUpdate.data.latest_version}
+                    </Button>
+                    <span className={layout.small}>
+                      Runs: {ocrUpdate.data.install_command}
+                    </span>
+                  </div>
+                </dd>
+              </>
+            )}
             {ocr.data.message ? (
               <>
                 <dt>Message</dt>
