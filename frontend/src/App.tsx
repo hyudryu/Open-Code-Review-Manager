@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./layouts/AppLayout";
 import { OverviewPage } from "./pages/OverviewPage";
 import { SetupPage } from "./pages/SetupPage";
-import { FolderDiscoveryPage } from "./pages/FolderDiscoveryPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { NewReviewPage } from "./pages/NewReviewPage";
@@ -31,7 +30,6 @@ export function App() {
         <Route index element={<OverviewPage />} />
         <Route path="setup" element={<SetupPage />} />
         <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/new-folder" element={<FolderDiscoveryPage />} />
         <Route path="projects/:projectId" element={<ProjectDetailPage />} />
         <Route path="reviews/new" element={<NewReviewPage />} />
         <Route path="reviews/preview" element={<PreviewPage />} />

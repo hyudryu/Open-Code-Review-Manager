@@ -333,6 +333,7 @@ export function NewReviewPage() {
                   <option value="commit">Commit — review one commit</option>
                   <option value="workspace">Workspace — uncommitted changes</option>
                   <option value="pr">Pull request — review PR head vs base</option>
+                  <option value="scan">Scan — scan entire repository</option>
                 </Select>
               )}
             />
@@ -401,6 +402,15 @@ export function NewReviewPage() {
                 worktree) so uncommitted changes are included. Results reflect the
                 working state at execution time — if the tree changes before the job
                 starts, you will see a warning in the job events.
+              </span>
+            </div>
+          ) : null}
+
+          {mode === "scan" ? (
+            <div className={styles.warningBox} role="note">
+              <span>
+                Scan reviews the entire repository (all branches and files). This is useful
+                for a comprehensive code review without specifying a particular range.
               </span>
             </div>
           ) : null}
@@ -575,152 +585,162 @@ export function NewReviewPage() {
           ) : null}
         </section>
 
-        {/* Background context */}
-        <section className={`${layout.section} ${layout.stack}`} aria-label="Background context">
-          <Textarea
-            label="Background context (Markdown, optional)"
-            rows={4}
-            placeholder="Focus on the authentication changes; ignore generated code style."
-            {...register("background")}
-          />
-          <Input
-            label="Background file path (optional)"
-            placeholder="docs/review-context.md"
-            mono
-            {...register("background_file")}
-          />
-          {(profile?.background_template || background.trim() || backgroundFile.trim()) ? (
-            <details>
-              <summary className={layout.small} style={{ cursor: "pointer" }}>
-                Merged context preview
-              </summary>
-              <div className={styles.codeBlock} style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-                {profile?.background_template ? (
-                  <>
-                    <span style={{ color: "var(--text-tertiary)" }}>
-                      # From profile “{profile.name}”{"\n"}
-                    </span>
-                    {profile.background_template}
-                    {"\n\n"}
-                  </>
-                ) : null}
-                {backgroundFile.trim() ? (
-                  <span style={{ color: "var(--text-tertiary)" }}>
-                    # From file: {backgroundFile.trim()}{"\n\n"}
-                  </span>
-                ) : null}
-                {background.trim() || <span style={{ color: "var(--text-tertiary)" }}>(no inline context)</span>}
-              </div>
-            </details>
-          ) : null}
-        </section>
-
-        {/* Overrides + delivery */}
-        <section className={`${layout.section} ${layout.stack}`} aria-label="Overrides and delivery">
-          <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <Input
-              label="Rule file override (optional)"
-              placeholder="rules/strict.md"
-              mono
-              {...register("rule_file")}
-            />
-            <Input
-              label={`Priority (0–100)${errors.priority ? " — invalid" : ""}`}
-              type="number"
-              min={0}
-              max={100}
-              error={errors.priority?.message}
-              {...register("priority")}
-            />
-          </div>
-          <Textarea
-            label="Exclude pattern overrides (one per line)"
-            rows={3}
-            placeholder={"*.generated.ts\nvendor/**"}
-            mono
-            help="Replaces the profile's exclude patterns for this job only."
-            {...register("excludes")}
-          />
-          <Controller
-            control={control}
-            name="webhook_endpoint_id"
-            render={({ field }) => (
-              <Select
-                label="Webhook endpoint (optional)"
-                value={field.value}
-                onChange={field.onChange}
-                help="A signed callback is delivered when this review reaches a terminal state."
-              >
-                <option value="">No webhook</option>
-                {(webhooks.data ?? [])
-                  .filter((w) => w.enabled)
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-              </Select>
-            )}
-          />
-          {overrideSummary ? (
-            <p className={layout.small}>Active overrides: {overrideSummary}</p>
-          ) : null}
-        </section>
-
-        {/* Expert */}
-        <section className={`${layout.section} ${layout.stack}`} aria-label="Expert options">
-          <button
-            type="button"
-            className={layout.row}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, font: "var(--text-label)", fontSize: 13, color: "var(--text-secondary)" }}
-            onClick={() => setExpertOpen((v) => !v)}
-            aria-expanded={expertOpen}
+        {/* Advanced options — optional fields collapsed by default */}
+        <details className={`${layout.section} ${layout.sectionTight}`}>
+          <summary
+            style={{
+              cursor: “pointer”,
+              font: “var(--text-label)”,
+              fontSize: 13,
+              color: “var(--text-secondary)”,
+              userSelect: “none”,
+            }}
           >
-            <IconTerminal size={14} />
-            Expert options
-          </button>
-          {expertOpen ? (
-            <>
-              {parsedArgs.ok && parsedArgs.argv.length > 0 ? (
-                <div>
-                  <p className={layout.small} style={{ marginBottom: 6 }}>
-                    Additional arguments from profile “{profile?.name}” (jobs using custom arguments are marked):
-                  </p>
-                  <div className={styles.codeBlock} style={{ whiteSpace: "pre-wrap" }}>
-                    {parsedArgs.argv.map((arg, i) => (
-                      <div key={i}>{arg}</div>
+            Advanced options
+          </summary>
+          <div className={`${layout.stack} ${layout.stackTight}`} style={{ marginTop: 8 }}>
+            {/* Background context */}
+            <Textarea
+              label=”Background context (Markdown, optional)”
+              rows={4}
+              placeholder=”Focus on the authentication changes; ignore generated code style.”
+              {...register(“background”)}
+            />
+            <Input
+              label=”Background file path (optional)”
+              placeholder=”docs/review-context.md”
+              mono
+              {...register(“background_file”)}
+            />
+            {(profile?.background_template || background.trim() || backgroundFile.trim()) ? (
+              <details>
+                <summary className={layout.small} style={{ cursor: “pointer” }}>
+                  Merged context preview
+                </summary>
+                <div className={styles.codeBlock} style={{ marginTop: 8, whiteSpace: “pre-wrap” }}>
+                  {profile?.background_template ? (
+                    <>
+                      <span style={{ color: “var(--text-tertiary)” }}>
+                        # From profile “{profile.name}”{“\n”}
+                      </span>
+                      {profile.background_template}
+                      {“\n\n”}
+                    </>
+                  ) : null}
+                  {backgroundFile.trim() ? (
+                    <span style={{ color: “var(--text-tertiary)” }}>
+                      # From file: {backgroundFile.trim()}{“\n\n”}
+                    </span>
+                  ) : null}
+                  {background.trim() || <span style={{ color: “var(--text-tertiary)” }}>(no inline context)</span>}
+                </div>
+              </details>
+            ) : null}
+
+            {/* Overrides + delivery */}
+            <div className={layout.grid2} style={{ gridTemplateColumns: “1fr 1fr” }}>
+              <Input
+                label=”Rule file override (optional)”
+                placeholder=”rules/strict.md”
+                mono
+                {...register(“rule_file”)}
+              />
+              <Input
+                label={`Priority (0–100)${errors.priority ? “ — invalid” : “”}`}
+                type=”number”
+                min={0}
+                max={100}
+                error={errors.priority?.message}
+                {...register(“priority”)}
+              />
+            </div>
+            <Textarea
+              label=”Exclude pattern overrides (one per line)”
+              rows={3}
+              placeholder={“*.generated.ts\nvendor/**”}
+              mono
+              help=”Replaces the profile's exclude patterns for this job only.”
+              {...register(“excludes”)}
+            />
+            <Controller
+              control={control}
+              name=”webhook_endpoint_id”
+              render={({ field }) => (
+                <Select
+                  label=”Webhook endpoint (optional)”
+                  value={field.value}
+                  onChange={field.onChange}
+                  help=”A signed callback is delivered when this review reaches a terminal state.”
+                >
+                  <option value=””>No webhook</option>
+                  {(webhooks.data ?? [])
+                    .filter((w) => w.enabled)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
                     ))}
-                  </div>
-                  <p className={layout.small} style={{ marginTop: 6 }}>
-                    Edit them on the <Link to={`/profiles/${profile?.id ?? ""}`}>profile</Link>.
-                  </p>
-                </div>
-              ) : parsedArgs.error ? (
-                <ErrorState
-                  title="Invalid additional arguments on the selected profile"
-                  error={{ message: parsedArgs.error }}
-                />
-              ) : (
-                <p className={layout.small}>
-                  The selected profile has no additional arguments. Add them in the{" "}
-                  <Link to={profile ? `/profiles/${profile.id}` : "/profiles"}>profile editor</Link>{" "}
-                  — they are parsed into an argv array, shell metacharacters are rejected,
-                  and control-plane-owned flags cannot be overridden.
-                </p>
+                </Select>
               )}
-              <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <div className={layout.stack} style={{ gap: 4 }}>
-                  <span className={layout.small}>Output format</span>
-                  <code className={layout.monoPath}>json (locked — required by the runner)</code>
+            />
+            {overrideSummary ? (
+              <p className={layout.small}>Active overrides: {overrideSummary}</p>
+            ) : null}
+
+            {/* Expert options */}
+            <button
+              type=”button”
+              className={layout.row}
+              style={{ background: “none”, border: “none”, cursor: “pointer”, padding: 0, font: “var(--text-label)”, fontSize: 13, color: “var(--text-secondary)” }}
+              onClick={() => setExpertOpen((v) => !v)}
+              aria-expanded={expertOpen}
+            >
+              <IconTerminal size={14} />
+              Expert options
+            </button>
+            {expertOpen ? (
+              <>
+                {parsedArgs.ok && parsedArgs.argv.length > 0 ? (
+                  <div>
+                    <p className={layout.small} style={{ marginBottom: 6 }}>
+                      Additional arguments from profile “{profile?.name}” (jobs using custom arguments are marked):
+                    </p>
+                    <div className={styles.codeBlock} style={{ whiteSpace: “pre-wrap” }}>
+                      {parsedArgs.argv.map((arg, i) => (
+                        <div key={i}>{arg}</div>
+                      ))}
+                    </div>
+                    <p className={layout.small} style={{ marginTop: 6 }}>
+                      Edit them on the <Link to={`/profiles/${profile?.id ?? “”}`}>profile</Link>.
+                    </p>
+                  </div>
+                ) : parsedArgs.error ? (
+                  <ErrorState
+                    title=”Invalid additional arguments on the selected profile”
+                    error={{ message: parsedArgs.error }}
+                  />
+                ) : (
+                  <p className={layout.small}>
+                    The selected profile has no additional arguments. Add them in the{“ “}
+                    <Link to={profile ? `/profiles/${profile.id}` : “/profiles”}>profile editor</Link>{“ “}
+                    — they are parsed into an argv array, shell metacharacters are rejected,
+                    and control-plane-owned flags cannot be overridden.
+                  </p>
+                )}
+                <div className={layout.grid2} style={{ gridTemplateColumns: “1fr 1fr” }}>
+                  <div className={layout.stack} style={{ gap: 4 }}>
+                    <span className={layout.small}>Output format</span>
+                    <code className={layout.monoPath}>json (locked — required by the runner)</code>
+                  </div>
+                  <div className={layout.stack} style={{ gap: 4 }}>
+                    <span className={layout.small}>Audience</span>
+                    <code className={layout.monoPath}>agent (locked — required by the runner)</code>
+                  </div>
                 </div>
-                <div className={layout.stack} style={{ gap: 4 }}>
-                  <span className={layout.small}>Audience</span>
-                  <code className={layout.monoPath}>agent (locked — required by the runner)</code>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </section>
+              </>
+            ) : null}
+          </div>
+        </details>
 
         {/* Command preview */}
         <CommandPreviewView preview={preview} />

@@ -14,6 +14,7 @@ import { PageHeader } from "../layouts/AppLayout";
 import {
   Button,
   ErrorState,
+  FolderSelector,
   Input,
   Select,
   StatusDot,
@@ -115,15 +116,24 @@ export function FolderDiscoveryPage() {
       />
       <div className={`${layout.stack} ${layout.stackLg}`} style={{ maxWidth: 720 }}>
         <section className={`${layout.section} ${layout.stack}`} aria-label="Folder location">
-          <Input
-            label="Directory path"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="C:\code\work or /home/you/projects"
-            help="Absolute path to a directory that contains one or more Git repositories."
-            mono
-            required
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+            <label style={{ font: "var(--text-label)", color: "var(--text-secondary)", display: "block" }} htmlFor="folder-path">
+              Directory path <span style={{ color: "var(--danger)" }}>*</span>
+            </label>
+            <div className={layout.row} style={{ gap: 8, marginTop: 4 }}>
+              <input
+                id="folder-path"
+                className={styles.input}
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="C:\code\work or /home/you/projects"
+                style={{ flex: 1, font: "var(--text-code)", height: 32, padding: "0 12px", border: "1px solid var(--border-strong)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)" }}
+                required
+              />
+              <FolderSelector label="Select folder" onSelect={(p) => setPath(p)} />
+            </div>
+            <p style={{ font: "var(--text-small)", color: "var(--text-tertiary)" }}>Absolute path to a directory that contains one or more Git repositories.</p>
+          </div>
           {recent.length > 0 ? (
             <div>
               <p className={layout.small} style={{ marginBottom: 6 }}>Recently used</p>

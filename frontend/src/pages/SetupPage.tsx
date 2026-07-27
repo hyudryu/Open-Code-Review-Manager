@@ -18,6 +18,7 @@ import { useUiStore } from "../hooks/store";
 import {
   Button,
   ErrorState,
+  FolderSelector,
   Input,
   Select,
   StatusDot,
@@ -242,13 +243,24 @@ export function SetupPage() {
             Point at any Git repository. You can add whole folders of repositories later
             from the Projects page.
           </p>
-          <Input
-            label="Repository path"
-            value={projectPath}
-            onChange={(e) => setProjectPath(e.target.value)}
-            placeholder="C:\code\my-project"
-            mono
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+            <label style={{ font: "var(--text-label)", color: "var(--text-secondary)", display: "block" }} htmlFor="setup-path">
+              Repository path <span style={{ color: "var(--danger)" }}>*</span>
+            </label>
+            <div className={layout.row} style={{ gap: 8, marginTop: 4 }}>
+              <input
+                id="setup-path"
+                className={styles.input}
+                value={projectPath}
+                onChange={(e) => setProjectPath(e.target.value)}
+                placeholder="C:\code\my-project"
+                style={{ flex: 1, font: "var(--text-code)", height: 32, padding: "0 12px", border: "1px solid var(--border-strong)", borderRadius: 8, background: "var(--bg-surface)", color: "var(--text-primary)" }}
+                required
+              />
+              <FolderSelector label="Select folder" onSelect={(p) => setProjectPath(p)} />
+            </div>
+            <p style={{ font: "var(--text-small)", color: "var(--text-tertiary)" }}>Absolute path to a Git repository.</p>
+          </div>
           {projectError ? <ErrorState title="Could not add project" error={projectError} /> : null}
           <div className={layout.row} style={{ justifyContent: "space-between" }}>
             <Button variant="tertiary" onClick={() => setStep(2)}>
@@ -347,24 +359,38 @@ export function SetupPage() {
             label="Profile name"
             value={profileName}
             onChange={(e) => setProfileName(e.target.value)}
+            help="The name of this review profile."
           />
-          <Select
-            label="Model (optional)"
-            value={profileModel}
-            onChange={(e) => setProfileModel(e.target.value)}
-            help={
-              models.data?.length
-                ? undefined
-                : "No models discovered yet — you can discover or add them on the provider page."
-            }
-          >
-            <option value="">Provider default</option>
-            {(models.data ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.display_name ?? m.model_id}
-              </option>
-            ))}
-          </Select>
+          <details className={layout.stack}>
+            <summary
+              style={{
+                cursor: "pointer",
+                font: "var(--text-label)",
+                fontSize: 13,
+                color: "var(--text-secondary)",
+                userSelect: "none",
+              }}
+            >
+              Advanced options
+            </summary>
+            <Select
+              label="Model (optional)"
+              value={profileModel}
+              onChange={(e) => setProfileModel(e.target.value)}
+              help={
+                models.data?.length
+                  ? undefined
+                  : "No models discovered yet — you can discover or add them on the provider page."
+              }
+            >
+              <option value="">Provider default</option>
+              {(models.data ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name ?? m.model_id}
+                </option>
+              ))}
+            </Select>
+          </details>
           {profileError ? <ErrorState title="Could not create profile" error={profileError} /> : null}
           <div className={layout.row} style={{ justifyContent: "space-between" }}>
             <Button variant="tertiary" onClick={() => setStep(4)}>
