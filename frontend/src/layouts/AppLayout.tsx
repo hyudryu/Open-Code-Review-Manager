@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect } from "react";
-import { useQueue, useSystemOcr } from "../api/hooks";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
+import { useHealth, useQueue, useSystemOcr } from "../api/hooks";
 import { useUiStore } from "../hooks/store";
 import { Button, StatusDot } from "../components/ui";
 import {
@@ -100,7 +102,17 @@ function Sidebar() {
   );
 }
 
+/** Prime the CSRF cookie on mount so mutations don't get a stale 403. */
+function useCsrfPrime() {
+  return useQuery({
+    queryKey: ["csrf-prime"],
+    queryFn: () => api.get("/api/v1/health"),
+    staleTime: Infinity, // prime once per session
+  });
+}
+
 export function AppLayout() {
+  useCsrfPrime();
   const { sidebarOpen, setSidebarOpen } = useUiStore();
   return (
     <div className={styles.shell}>

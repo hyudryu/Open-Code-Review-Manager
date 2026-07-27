@@ -98,8 +98,10 @@ class Settings(BaseSettings):
     csrf_token: str | None = None  # generated at startup when unset
     allowed_origins: list[str] = Field(
         default_factory=lambda: [
-            f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}",
-            f"http://localhost:{_DEFAULT_PORT}",
+            f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}",      # backend self
+            f"http://localhost:{_DEFAULT_PORT}",            # backend self
+            f"http://{_DEFAULT_HOST}:5173",                # Vite dev server
+            f"http://localhost:5173",                      # Vite dev server
         ]
     )
 

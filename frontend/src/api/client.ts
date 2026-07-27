@@ -114,6 +114,75 @@ async function request<T>(
     }
   }
 
+  // Defensive CSRF retry: if we get a 403 csrf_failed, the cookie may not
+  // have been set (e.g. CORS stripping Set-Cookie for cross-origin Vite dev).
+  // Prime the cookie with a GET and retry the original request once.
+  if (
+    response.status === 403 &&
+    parsed &&
+    typeof parsed === "object" &&
+    "error" in parsed &&
+    (parsed as { error: { code: string } }).error?.code === "csrf_failed"
+  ) {
+    try {
+      const prime = await fetch("/api/v1/health", {
+        credentials: "same-origin",
+      });
+      if (prime.ok) {
+        const retryToken = readCsrfCookie();
+        if (retryToken) {
+          headers["X-OCR-CSRF"] = retryToken;
+          const retryResp = await fetch(`${path}${buildQuery(params)}`, {
+            method,
+            headers,
+            credentials: "same-origin",
+            body: body === undefined ? undefined : JSON.stringify(body),
+          });
+
+          if (!retryResp.ok) {
+            const retryText = await retryResp.text();
+            let retryParsed: unknown = null;
+            try {
+              retryParsed = JSON.parse(retryText);
+            } catch {
+              retryParsed = null;
+            }
+            const retryBody =
+              retryParsed && typeof retryParsed === "object" && "error" in retryParsed
+                ? ((retryParsed as { error: ApiErrorDetail }).error ?? null)
+                : retryParsed && typeof retryParsed === "object" && "detail" in retryParsed
+                  ? ({
+                      code: "request_failed",
+                      message:
+                        typeof (retryParsed as { detail: unknown }).detail === "string"
+                          ? ((retryParsed as { detail: string }).detail ?? "")
+                          : "The request failed.",
+                      detail:
+                        typeof (retryParsed as { detail: unknown }).detail === "string"
+                          ? null
+                          : (retryParsed as { detail: unknown }).detail,
+                    } satisfies ApiErrorDetail)
+                  : null;
+            throw new ApiError(retryResp.status, retryBody, retryText.slice(0, 200));
+          }
+
+          if (retryResp.status === 204) return undefined as T;
+
+          const retryText = await retryResp.text();
+          let retryParsed2: unknown = null;
+          try {
+            retryParsed2 = JSON.parse(retryText);
+          } catch {
+            retryParsed2 = null;
+          }
+          return retryParsed2 as T;
+        }
+      }
+    } catch {
+      // Prime failed – fall through to original error.
+    }
+  }
+
   if (!response.ok) {
     const body =
       parsed && typeof parsed === "object" && "error" in parsed
