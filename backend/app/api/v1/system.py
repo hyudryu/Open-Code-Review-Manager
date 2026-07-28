@@ -83,6 +83,71 @@ async def ocr_reprobe():
     return status.model_dump()
 
 
+@router.get("/system/ocr/update-status")
+async def ocr_update_status():
+    """Check if a newer version of OpenCodeReview is available on npm.
+
+    Queries the npm registry for the latest ``@alibaba-group/open-code-review``
+    version and compares it with the currently detected installation.
+    """
+
+    from httpx import AsyncClient, Timeout
+
+    from app.core.logging import get_logger
+    from app.ocr.version import is_newer
+
+    logger = get_logger(__name__)
+    adapter = get_ocr_adapter()
+    status = await adapter.detect()
+    current_version = status.version
+
+    # If we can't detect the current version, we can't compare.
+    if not current_version:
+        return {
+            "current_version": None,
+            "latest_version": None,
+            "update_available": False,
+            "install_command": "npm i -g @alibaba-group/open-code-review",
+            "error": "Current version not detected",
+        }
+
+    # Query npm registry for the latest version.
+    npm_url = "https://registry.npmjs.org/@alibaba-group/open-code-review"
+    try:
+        async with AsyncClient(timeout=Timeout(5.0)) as client:
+            resp = await client.get(f"{npm_url}/latest")
+            resp.raise_for_status()
+            npm_data = resp.json()
+            latest_version = npm_data.get("version")
+    except Exception as exc:
+        logger.warning("Failed to check npm for latest version: %s", exc)
+        return {
+            "current_version": current_version,
+            "latest_version": None,
+            "update_available": False,
+            "install_command": "npm i -g @alibaba-group/open-code-review",
+            "error": f"Could not reach npm registry: {exc}",
+        }
+
+    if not latest_version:
+        return {
+            "current_version": current_version,
+            "latest_version": None,
+            "update_available": False,
+            "install_command": "npm i -g @alibaba-group/open-code-review",
+            "error": "No version found on npm",
+        }
+
+    update_available = is_newer(current_version, latest_version)
+
+    return {
+        "current_version": current_version,
+        "latest_version": latest_version,
+        "update_available": update_available,
+        "install_command": "npm i -g @alibaba-group/open-code-review",
+    }
+
+
 @router.get("/settings")
 async def get_settings_map(service: SettingsService = Depends(settings_service)):
     return await service.get_all()

@@ -78,6 +78,23 @@ export function useHealth(options?: Partial<UseQueryOptions<Health>>) {
   });
 }
 
+export interface OcrUpdateStatus {
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+  install_command: string;
+  error?: string | null;
+}
+
+export function useOcrUpdateStatus(options?: Partial<UseQueryOptions<OcrUpdateStatus>>) {
+  return useQuery({
+    queryKey: ["ocr-update-status"],
+    queryFn: () => api.get<OcrUpdateStatus>("/api/v1/system/ocr/update-status"),
+    staleTime: 5 * 60 * 1000, // cache for 5 minutes
+    ...options,
+  });
+}
+
 export function useSystemInfo(options?: Partial<UseQueryOptions<SystemInfo>>) {
   return useQuery({
     queryKey: qk.systemInfo,

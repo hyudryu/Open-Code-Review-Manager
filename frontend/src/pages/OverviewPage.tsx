@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMemo } from "react";
 import {
   useJobs,
+  useOcrUpdateStatus,
   useProjects,
   useProviders,
   useQueue,
@@ -12,7 +13,7 @@ import {
 } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot } from "../components/ui";
-import { IconFolder, IconPlus } from "../components/ui/icons";
+import { IconExternal, IconFolder, IconPlus } from "../components/ui/icons";
 import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
 import { TERMINAL_STATUSES, type Job } from "../types";
@@ -74,6 +75,7 @@ export function OverviewPage() {
   const projects = useProjects();
   const providers = useProviders();
   const ocr = useSystemOcr();
+  const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
 
   const activeJobs = useMemo(
@@ -282,6 +284,13 @@ export function OverviewPage() {
                   />
                 ) : (
                   <StatusDot tone="muted" label="checking" />
+                )}
+                {ocr.data?.status === "ok" && ocrUpdate.data?.update_available && (
+                  <div>
+                    <span style={{ fontSize: 11, color: "var(--accent)" }}>
+                      {ocrUpdate.data.latest_version} available
+                    </span>
+                  </div>
                 )}
               </div>
               <div className={styles.compactRow}>
