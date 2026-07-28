@@ -91,15 +91,7 @@ function buildState(entries: SpeedEntry[]): SpeedLearnerState {
     buckets.push({ key, avg_elapsed_per_file: avgPerFile, count: data.count, multiplier });
   }
 
-  // Compute cumulative multiplier from recent entries
-  const recent = valid.slice(-20); // last 20 entries
-  let cumulativeRatio = 1;
-  let count = 0;
-  for (const entry of recent) {
-    // We don't have the "estimated" time here, so we use the multiplier from buckets
-    count += 1;
-  }
-  const multiplier = count > 0 ? 1 : 1; // will be updated when we have estimates
+  const multiplier = 1;
 
   return { entries: valid, buckets, globalAvgPerFile, multiplier };
 }

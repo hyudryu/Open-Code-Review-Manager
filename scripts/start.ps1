@@ -1,13 +1,16 @@
 # Production startup — the ONE command (SPEC §2/§37):
 #   powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 # Builds the frontend when needed, then runs `python -m app`, which serves the
-# API + MCP + built UI on http://127.0.0.1:8787, applies DB migrations, and
+# API + MCP + built UI on http://127.0.0.1:8372, applies DB migrations, and
 # starts the queue and webhook workers.
 #
 # Options:
 #   -Build   force a frontend rebuild even if frontend\dist exists
+#   -Port    override OCR_CC_PORT for this startup
 param(
-    [switch]$Build
+    [switch]$Build,
+    [ValidateRange(1, 65535)]
+    [int]$Port
 )
 # NOTE: do NOT set $ErrorActionPreference = "Stop" here. In Windows PowerShell
 # 5.1 a native command writing to stderr (pip/npm/python all do) becomes a
@@ -66,9 +69,12 @@ if (Test-Path (Join-Path $Root ".env")) {
     }
 }
 
+if ($Port) {
+    $env:OCR_CC_PORT = [string]$Port
+}
 $port = $env:OCR_CC_PORT
-if (-not $port) { $port = "8787" }
+if (-not $port) { $port = "8372" }
 Write-Host "[start] OpenCodeReview Manager -> http://127.0.0.1:$port"
 Set-Location (Join-Path $Root "backend")
-& $VenvPy -m app
+& $VenvPy -m app --port $port
 exit $LASTEXITCODE

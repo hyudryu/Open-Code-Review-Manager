@@ -63,6 +63,37 @@ async def test_health_and_csrf(client, repo) -> None:
     assert response.json()["error"]["code"] == "csrf_failed"
 
 
+async def test_stale_csrf_cookie_is_refreshed(client) -> None:
+    client.cookies.set(
+        "ocrcc_csrf", "stale-token", domain="testserver.local", path="/"
+    )
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    refreshed = client.cookies.get("ocrcc_csrf", domain="testserver.local", path="/")
+    assert refreshed and refreshed != "stale-token"
+
+    response = await client.post(
+        "/api/v1/system/ocr/test",
+        headers={"X-OCR-CSRF": refreshed},
+    )
+    assert response.status_code == 200
+
+    client.cookies.set(
+        "ocrcc_csrf", "stale-token-again", domain="testserver.local", path="/"
+    )
+    response = await client.post(
+        "/api/v1/system/ocr/test",
+        headers={"X-OCR-CSRF": "stale-token-again"},
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "csrf_failed"
+    assert (
+        client.cookies.get("ocrcc_csrf", domain="testserver.local", path="/")
+        == refreshed
+    )
+
+
 async def test_system_endpoints(client) -> None:
     response = await client.get("/api/v1/system/ocr")
     assert response.status_code == 200

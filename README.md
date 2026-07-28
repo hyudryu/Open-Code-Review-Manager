@@ -41,8 +41,15 @@ The script creates the virtualenv and installs dependencies on first run,
 builds the frontend when needed, then starts the app. Database migrations,
 the queue worker, the webhook worker, and the MCP server all start with it.
 
-Open **http://127.0.0.1:8787** — the same process serves the UI, the REST API
+Open **http://127.0.0.1:8372** — the same process serves the UI, the REST API
 (`/api/v1`), and the MCP endpoint (`/mcp`).
+
+To use another port for a single launch:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Port 9000
+scripts/start.sh --port 9000
+```
 
 Configuration is optional; copy [.env.example](.env.example) to `.env` to
 override ports, paths, or executables. Provider credentials are entered in the
@@ -58,7 +65,7 @@ powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
 scripts/dev.sh
 ```
 
-Starts the backend with `uvicorn --reload` on :8787 and the Vite dev server on
+Starts the backend with `uvicorn --reload` on :8372 and the Vite dev server on
 :5173 (proxying `/api` and `/mcp`). Tests:
 
 ```bash

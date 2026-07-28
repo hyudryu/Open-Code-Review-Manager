@@ -1,5 +1,9 @@
-# Development startup: backend (uvicorn --reload :8787) + frontend (vite :5173).
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
+# Development startup: backend (uvicorn --reload :8372) + frontend (vite :5173).
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 [-Port 8372]
+param(
+    [ValidateRange(1, 65535)]
+    [int]$Port
+)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
@@ -27,9 +31,15 @@ if (Test-Path (Join-Path $Root ".env")) {
     }
 }
 
-Write-Host "[dev] backend  → http://127.0.0.1:8787 (uvicorn --reload)"
+if ($Port) {
+    $env:OCR_CC_PORT = [string]$Port
+}
+$backendPort = $env:OCR_CC_PORT
+if (-not $backendPort) { $backendPort = "8372" }
+
+Write-Host "[dev] backend  → http://127.0.0.1:$backendPort (uvicorn --reload)"
 $backend = Start-Process -PassThru -NoNewWindow -WorkingDirectory (Join-Path $Root "backend") `
-    -FilePath $VenvPy -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8787", "--reload"
+    -FilePath $VenvPy -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", $backendPort, "--reload"
 
 try {
     Write-Host "[dev] frontend → http://localhost:5173 (vite, proxies /api and /mcp)"

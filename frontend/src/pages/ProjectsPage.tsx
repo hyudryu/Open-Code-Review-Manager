@@ -40,7 +40,7 @@ import {
   IconPlus,
 } from "../components/ui/icons";
 import { relativeTime } from "../lib/format";
-import type { Folder, FolderScan, Project, ScannedRepo } from "../types";
+import type { Folder, FolderScan, Project } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
@@ -51,11 +51,9 @@ type AddMode = "project" | "scan";
 function AddDialog({
   open,
   onOpenChange,
-  folders,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  folders: Folder[];
 }) {
   const navigate = useNavigate();
   const [mode, setMode] = useState<AddMode>("project");
@@ -480,7 +478,7 @@ export function ProjectsPage() {
         </div>
       )}
 
-      <AddDialog open={addOpen} onOpenChange={setAddOpen} folders={folders.data ?? []} />
+      <AddDialog open={addOpen} onOpenChange={setAddOpen} />
       <ConfirmDialog
         open={folderToRemove !== null}
         onOpenChange={(open) => {

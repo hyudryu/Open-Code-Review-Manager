@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { useHealth, useQueue, useSystemOcr } from "../api/hooks";
+import { useQueue, useSystemOcr } from "../api/hooks";
 import { useUiStore } from "../hooks/store";
 import { Button, StatusDot } from "../components/ui";
 import {

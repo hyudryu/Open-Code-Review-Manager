@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from app.__main__ import parse_args
 from app.core.security import (
     AdditionalArgsError,
     PathSecurityError,
@@ -176,3 +177,9 @@ def test_redact_environment() -> None:
 def test_csrf_tokens_unique() -> None:
     a, b = generate_csrf_token(), generate_csrf_token()
     assert a != b and len(a) >= 32
+
+
+def test_startup_port_argument_validation() -> None:
+    assert parse_args(["--port", "8372"]).port == 8372
+    with pytest.raises(SystemExit):
+        parse_args(["--port", "70000"])

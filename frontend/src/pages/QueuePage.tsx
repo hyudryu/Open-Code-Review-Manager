@@ -65,7 +65,7 @@ export function QueuePage() {
   const duplicateJob = useDuplicateJob();
   const pauseJob = usePauseJob();
   const resumePaused = useResumePausedJob();
-  const { eta, perJob, queuedCount, activeCount } = useSpeedLearner();
+  const { eta } = useSpeedLearner();
 
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);

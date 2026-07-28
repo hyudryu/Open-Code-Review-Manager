@@ -9,11 +9,11 @@ import {
 
 describe("buildMcpClientConfig", () => {
   it("produces parseable JSON with the streamable-http server entry", () => {
-    const config = buildMcpClientConfig("http://127.0.0.1:8787/mcp");
+    const config = buildMcpClientConfig("http://127.0.0.1:8372/mcp");
     const parsed = JSON.parse(config);
     expect(parsed.mcpServers["ocr-control-center"]).toEqual({
       type: "http",
-      url: "http://127.0.0.1:8787/mcp",
+      url: "http://127.0.0.1:8372/mcp",
     });
   });
 });

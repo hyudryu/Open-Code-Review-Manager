@@ -24,13 +24,18 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.token = token or generate_csrf_token()
 
+    def _set_csrf_cookie(self, response: Response) -> None:
+        response.set_cookie(
+            CSRF_COOKIE, self.token, httponly=False, samesite="strict"
+        )
+
     async def dispatch(self, request: Request, call_next) -> Response:  # noqa: ANN001
         path = request.url.path
         if path.startswith("/api/") and request.method not in SAFE_METHODS:
             header = request.headers.get(CSRF_HEADER)
             cookie = request.cookies.get(CSRF_COOKIE)
             if not header or not cookie or header != cookie or header != self.token:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=403,
                     content={
                         "error": {
@@ -41,13 +46,11 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                         }
                     },
                 )
+                self._set_csrf_cookie(response)
+                return response
         response = await call_next(request)
-        if (
-            path.startswith("/api/")
-            and request.method in SAFE_METHODS
-            and CSRF_COOKIE not in request.cookies
-        ):
-            response.set_cookie(
-                CSRF_COOKIE, self.token, httponly=False, samesite="strict"
-            )
+        if path.startswith("/api/") and request.method in SAFE_METHODS:
+            cookie = request.cookies.get(CSRF_COOKIE)
+            if cookie != self.token:
+                self._set_csrf_cookie(response)
         return response

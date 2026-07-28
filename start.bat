@@ -1,13 +1,40 @@
 @echo off
 rem OpenCodeReview Manager - one-click launcher (Windows)
-rem Double-click or run: start.bat [--build]
+rem Double-click or run: start.bat [--build] [--port 8372]
 setlocal
 set "ROOT=%~dp0"
 
-rem Forward --build to the PowerShell script's -Build switch.
+rem Forward launcher args to the PowerShell script.
 set "PSARGS="
-if /I "%~1"=="--build" set "PSARGS=-Build"
-if /I "%~1"=="-build" set "PSARGS=-Build"
+
+:parse_args
+if "%~1"=="" goto args_done
+if /I "%~1"=="--build" (
+    set "PSARGS=%PSARGS% -Build"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="-build" (
+    set "PSARGS=%PSARGS% -Build"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--port" (
+    if "%~2"=="" (
+        echo [start] ERROR: --port requires a value.
+        pause
+        exit /b 2
+    )
+    set "PSARGS=%PSARGS% -Port %~2"
+    shift
+    shift
+    goto parse_args
+)
+echo [start] ERROR: unknown option "%~1".
+pause
+exit /b 2
+
+:args_done
 
 rem Prefer the full System32 path so a trimmed PATH cannot break the launch.
 set "PS1=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"

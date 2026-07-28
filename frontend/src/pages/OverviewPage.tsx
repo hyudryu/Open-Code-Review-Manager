@@ -13,7 +13,7 @@ import {
 } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot } from "../components/ui";
-import { IconExternal, IconFolder, IconPlus } from "../components/ui/icons";
+import { IconFolder, IconPlus } from "../components/ui/icons";
 import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
 import { TERMINAL_STATUSES, type Job } from "../types";

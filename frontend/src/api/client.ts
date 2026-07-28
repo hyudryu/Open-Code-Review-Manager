@@ -84,11 +84,9 @@ async function request<T>(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && method !== "HEAD") {
-    // Guard against race condition: if the CSRF cookie hasn't been set yet
-    // (e.g. useCsrfPrime in AppLayout hasn't completed), prime it now.
-    if (!readCsrfCookie()) {
-      await primeCsrf();
-    }
+    // Always prime before mutations so a backend restart can replace any
+    // stale CSRF cookie before the mutation is sent.
+    await primeCsrf();
     const token = readCsrfCookie();
     if (token) headers["X-OCR-CSRF"] = token;
   }

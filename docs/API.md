@@ -1,6 +1,6 @@
 # REST API
 
-Base URL: `http://127.0.0.1:8787/api/v1` (port configurable via `OCR_CC_PORT`).
+Base URL: `http://127.0.0.1:8372/api/v1` (port configurable via `OCR_CC_PORT`).
 All requests/responses are JSON unless noted. Interactive docs: `/api/docs`
 (Swagger UI) and `/openapi.json`. (`/docs` belongs to the in-app documentation
 page.)
