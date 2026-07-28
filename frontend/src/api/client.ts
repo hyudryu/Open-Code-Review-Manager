@@ -49,6 +49,15 @@ function readCsrfCookie(): string | null {
   return match ? decodeURIComponent(match.slice(CSRF_COOKIE.length + 1)) : null;
 }
 
+/** Prime the CSRF cookie by fetching the health endpoint. */
+async function primeCsrf(): Promise<void> {
+  try {
+    await fetch("/api/v1/health", { credentials: "same-origin" });
+  } catch {
+    // Prime failed – the defensive retry will handle stale 403s.
+  }
+}
+
 export type QueryParams = Record<
   string,
   string | number | boolean | null | undefined
@@ -75,6 +84,11 @@ async function request<T>(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && method !== "HEAD") {
+    // Guard against race condition: if the CSRF cookie hasn't been set yet
+    // (e.g. useCsrfPrime in AppLayout hasn't completed), prime it now.
+    if (!readCsrfCookie()) {
+      await primeCsrf();
+    }
     const token = readCsrfCookie();
     if (token) headers["X-OCR-CSRF"] = token;
   }
