@@ -5,8 +5,8 @@
 
 import { useEffect, useMemo } from "react";
 import { useJobs, useQueue } from "../api/hooks";
-import { learn, estimateQueueETA, type SpeedBucket } from "../lib/speed-learner";
-import { TERMINAL_STATUSES, type Job } from "../types";
+import { learn, estimateQueueETA } from "../lib/speed-learner";
+import { TERMINAL_STATUSES } from "../types";
 
 export function useSpeedLearner() {
   const queue = useQueue({ refetchInterval: 6_000 });
@@ -67,9 +67,6 @@ export function useSpeedLearner() {
       estimatedFiles,
     );
   }, [serverQueued, activeJobs]);
-
-  // Get buckets for display
-  const buckets: SpeedBucket[] = []; // could be exposed if needed
 
   return {
     eta: eta.eta,

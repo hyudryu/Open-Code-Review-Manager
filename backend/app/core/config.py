@@ -15,7 +15,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 8787
+_DEFAULT_PORT = 8372
 
 
 def _default_data_dir() -> Path:

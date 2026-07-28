@@ -148,8 +148,6 @@ export function SettingsPage() {
     const cmd = ocrUpdate.data?.install_command ?? "npm i -g @alibaba-group/open-code-review";
     const isWin = typeof window !== "undefined" && /win/i.test(navigator.userAgent);
     if (isWin) {
-      // Open a new CMD window with the install command.
-      const url = `wt.exe ${cmd} || cmd.exe /k ${cmd}`;
       // Fallback: try to open the command in a new terminal via shell URI.
       window.open(`shell:wt.exe /k ${encodeURIComponent(cmd)}`);
     } else {

@@ -130,9 +130,15 @@ export function DocsPage() {
           <P>
             The launcher creates the virtualenv and installs dependencies on first run,
             builds the frontend when needed, then starts a single process on{" "}
-            <Code>http://127.0.0.1:8787</Code> serving the UI, the REST API
+            <Code>http://127.0.0.1:8372</Code> serving the UI, the REST API
             (<Code>/api/v1</Code>), and the MCP endpoint (<Code>/mcp</Code>). Database
             migrations, the queue worker, and the webhook worker all start with it.
+          </P>
+          <P>
+            Override the port for one startup with{" "}
+            <Code>scripts/start.ps1 -Port 9000</Code> or{" "}
+            <Code>scripts/start.sh --port 9000</Code>. The persistent setting is{" "}
+            <Code>OCR_CC_PORT</Code> in <Code>.env</Code>.
           </P>
           <P>
             On first launch, the <Link to="/setup">setup wizard</Link> walks through
@@ -220,7 +226,7 @@ export function DocsPage() {
 
         <Section id="api" title="REST API overview">
           <P>
-            Base URL <Code>http://127.0.0.1:8787/api/v1</Code>. State-changing requests
+            Base URL <Code>http://127.0.0.1:8372/api/v1</Code>. State-changing requests
             require the CSRF double-submit: echo the <Code>ocrcc_csrf</Code> cookie in
             the <Code>X-OCR-CSRF</Code> header. Errors share one envelope:{" "}
             <Code>{"{error: {code, message, detail, next_action}}"}</Code>.

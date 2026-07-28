@@ -84,20 +84,8 @@ async function request<T>(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && method !== "HEAD") {
-    // Always refresh the CSRF cookie before mutations.
-    //
-    // The backend regenerates its CSRF token on every restart. If the user has
-    // a stale `ocrcc_csrf` cookie from a previous session (set when the server
-    // had the old token), the cookie value will never be overwritten because
-    // the backend skips Set-Cookie when the cookie is already present
-    // (security.py: CSRF_COOKIE not in request.cookies).
-    //
-    // This means stale cookies cause a permanent 403 on every mutation until
-    // the server restarts again — a dead loop.
-    //
-    // By always priming before mutations, we guarantee the cookie has the
-    // latest token from the server. The /api/v1/health endpoint is
-    // lightweight so the extra round-trip is negligible.
+    // Always prime before mutations so a backend restart can replace any
+    // stale CSRF cookie before the mutation is sent.
     await primeCsrf();
     const token = readCsrfCookie();
     if (token) headers["X-OCR-CSRF"] = token;

@@ -10,6 +10,16 @@ import { useRef } from "react";
 import { IconFolder } from "./icons";
 import styles from "./ui.module.css";
 
+type DirectoryInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory?: string;
+  directory?: string;
+};
+
+const directoryInputProps: DirectoryInputProps = {
+  webkitdirectory: "",
+  directory: "",
+};
+
 interface FolderSelectorProps {
   /** Called with the absolute directory path when the user selects a folder. */
   onSelect: (path: string) => void;
@@ -30,9 +40,12 @@ export function FolderSelector({ onSelect, label = "Select folder" }: FolderSele
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file?.webkitRelativePath) {
+    if (!file) return;
+    const relativePath = (file as File & { webkitRelativePath?: string })
+      .webkitRelativePath;
+    if (relativePath) {
       // webkitRelativePath is "rootDir/..." — strip to root directory.
-      const root = file.webkitRelativePath.split("/")[0];
+      const root = relativePath.split("/")[0];
       onSelect(root);
     } else {
       // Fallback: use the file's name as the folder name.
@@ -46,8 +59,7 @@ export function FolderSelector({ onSelect, label = "Select folder" }: FolderSele
         ref={inputRef}
         type="file"
         accept="*/*"
-        webkitdirectory
-        directory
+        {...directoryInputProps}
         style={{ display: "none" }}
         onChange={handleChange}
       />

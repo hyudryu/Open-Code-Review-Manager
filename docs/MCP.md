@@ -1,7 +1,7 @@
 # MCP Server
 
 The control center exposes an MCP server over **Streamable HTTP** at
-`http://127.0.0.1:8787/mcp` (same process, same port as the REST API; stateless
+`http://127.0.0.1:8372/mcp` (same process, same port as the REST API; stateless
 HTTP mode — no session affinity required). Tools are thin wrappers over the
 same application services as the REST API, so behavior is identical whether a
 job is submitted from the UI, the API, or an MCP client.
@@ -97,7 +97,7 @@ required.
   "mcpServers": {
     "ocr-control-center": {
       "type": "http",
-      "url": "http://127.0.0.1:8787/mcp"
+      "url": "http://127.0.0.1:8372/mcp"
     }
   }
 }
@@ -105,7 +105,7 @@ required.
 
 (On Claude Desktop builds that only support stdio, use any streamable-HTTP →
 stdio bridge, e.g. `mcp-remote`: `"command": "npx", "args": ["mcp-remote",
-"http://127.0.0.1:8787/mcp"]`.)
+"http://127.0.0.1:8372/mcp"]`.)
 
 ### Generic streamable-HTTP client (Python)
 
@@ -113,7 +113,7 @@ stdio bridge, e.g. `mcp-remote`: `"command": "npx", "args": ["mcp-remote",
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-async with streamablehttp_client("http://127.0.0.1:8787/mcp") as (read, write, _):
+async with streamablehttp_client("http://127.0.0.1:8372/mcp") as (read, write, _):
     async with ClientSession(read, write) as session:
         await session.initialize()
         projects = await session.call_tool("ocr_list_projects", {})
