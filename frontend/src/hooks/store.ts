@@ -101,3 +101,13 @@ if (typeof window !== "undefined" && window.matchMedia) {
       if (useUiStore.getState().themePreference === "system") applyTheme("system");
     });
 }
+
+/**
+ * Apply the persisted theme preference to the DOM. Called from a mount-time
+ * effect so the React layer reconciles ``data-theme`` with the hydrated store
+ * value — the inline ``index.html`` shim only covers first paint, and nothing
+ * else reapplied the theme after load (the original bug).
+ */
+export function syncThemeToDom() {
+  applyTheme(useUiStore.getState().themePreference);
+}
