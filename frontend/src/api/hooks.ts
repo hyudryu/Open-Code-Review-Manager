@@ -580,12 +580,13 @@ export interface JobFilters {
   offset?: number;
 }
 
-export function useJobs(filters: JobFilters = {}) {
+export function useJobs(filters: JobFilters = {}, options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: qk.jobs(filters as Record<string, unknown>),
     queryFn: () =>
       api.get<Page<Job>>("/api/v1/jobs", { ...filters }),
     placeholderData: (prev) => prev,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

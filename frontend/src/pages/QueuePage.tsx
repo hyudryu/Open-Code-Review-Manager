@@ -90,7 +90,7 @@ function ExpandedFindings({ jobId }: { jobId: string }) {
 
 export function QueuePage() {
   const queue = useQueue();
-  const recent = useJobs({ limit: 15 });
+  const recent = useJobs({ limit: 15 }, { refetchInterval: 5_000 });
   const projects = useProjects();
   const navigate = useNavigate();
 
