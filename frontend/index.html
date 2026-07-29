@@ -6,12 +6,24 @@
     <meta name="color-scheme" content="light dark" />
     <title>OpenCodeReview Manager</title>
     <script>
-      // Set theme before first paint to avoid a flash.
+      // Set theme before first paint to avoid a flash. Must read the same key
+      // the store writes ("ocrcc.theme.pref") and resolve "system" the same
+      // way resolveTheme() does, or the persisted preference is ignored.
       (function () {
-        var stored = null;
-        try { stored = localStorage.getItem("ocrcc.theme"); } catch (e) {}
-        var theme = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        document.documentElement.setAttribute("data-theme", theme);
+        var pref = null;
+        try {
+          pref = localStorage.getItem("ocrcc.theme.pref");
+          // Legacy clients stored under a different key (light/dark only).
+          if (pref !== "system" && pref !== "light" && pref !== "dark") {
+            var legacy = localStorage.getItem("ocrcc.theme");
+            if (legacy === "light" || legacy === "dark") pref = legacy;
+          }
+        } catch (e) {}
+        var resolved =
+          pref === "light" || pref === "dark"
+            ? pref
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", resolved);
       })();
     </script>
   </head>

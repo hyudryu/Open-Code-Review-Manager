@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useQueue, useSystemOcr } from "../api/hooks";
-import { useUiStore } from "../hooks/store";
+import { useUiStore, syncThemeToDom } from "../hooks/store";
 import { Button, StatusDot } from "../components/ui";
 import {
   IconDocs,
@@ -114,6 +114,14 @@ function useCsrfPrime() {
 export function AppLayout() {
   useCsrfPrime();
   const { sidebarOpen, setSidebarOpen } = useUiStore();
+  // Reconcile the DOM theme with the (hydrated) store value on mount and
+  // whenever the preference changes. The inline index.html shim only sets the
+  // first paint; without this, refreshes could render the wrong theme even
+  // though the selector showed the right one.
+  const themePreference = useUiStore((s) => s.themePreference);
+  useEffect(() => {
+    syncThemeToDom();
+  }, [themePreference]);
   return (
     <div className={styles.shell}>
       <Sidebar />
