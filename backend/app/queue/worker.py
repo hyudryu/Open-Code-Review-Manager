@@ -127,18 +127,29 @@ class QueueWorker:
         if self._stop.is_set() or await self._is_paused():
             return 0
         global_limit, per_project, per_provider = await self._limits()
-        # Use the count of dispatched tasks (self._tasks) for capacity, not
-        # self.runner.active_count. Tasks are registered in self._tasks
-        # synchronously at dispatch time, while self._active is populated
-        # asynchronously when each task starts running. Using _tasks avoids
-        # a race where the dispatch loop over-subscribes before the first
-        # task has had a chance to register in the runner.
-        capacity = global_limit - len(self._tasks)
-        if capacity <= 0:
-            return 0
 
+        # Check both dispatched tasks AND the database for active jobs.
+        # self._tasks tracks asyncio tasks we spawned, but a job can be
+        # active in the DB (preparing/running) even if its task briefly
+        # left self._tasks (e.g. quick failure + retry). The DB is the
+        # source of truth for what's actually consuming capacity.
         factory = get_session_factory()
         async with factory() as session:
+            result = await session.execute(
+                select(models.ReviewJob).where(
+                    models.ReviewJob.status.in_(["preparing", "running", "cancelling"])
+                )
+            )
+            db_active = list(result.scalars())
+            db_active_ids = {j.id for j in db_active}
+            db_active_projects = {j.project_id for j in db_active}
+
+            # Capacity = global limit - max(tracked tasks, DB active jobs)
+            active_count = max(len(self._tasks), len(db_active_ids))
+            capacity = global_limit - active_count
+            if capacity <= 0:
+                return 0
+
             queue = QueueService(session, settings=self.settings)
             candidates = await queue.next_runnable(limit=50)
 
@@ -146,9 +157,12 @@ class QueueWorker:
         for job in candidates:
             if capacity <= 0:
                 break
-            if job.id in self._tasks:
+            if job.id in self._tasks or job.id in db_active_ids:
                 continue
-            if self.runner.active_for_project(job.project_id) >= per_project:
+            # Check both runner tracking and DB for per-project limits.
+            project_active = self.runner.active_for_project(job.project_id)
+            db_project_count = sum(1 for j in db_active if j.project_id == job.project_id)
+            if max(project_active, db_project_count) >= per_project:
                 continue
             provider_key = (
                 (job.configuration_snapshot_json or {}).get("provider") or {}
