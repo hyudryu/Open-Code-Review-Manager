@@ -26,6 +26,16 @@ EDITABLE_SETTINGS: dict[str, str] = {
     "webhooks.allow_private_networks": "webhook_allow_private_networks",
     "ocr.executable": "ocr_executable",
     "git.executable": "git_executable",
+    "server.port": "port",
+}
+
+#: Per-key value validation. Changing ``server.port`` only takes effect after
+#: a restart because the port is bound once at startup (see ``app.__main__``).
+SETTING_VALIDATORS = {
+    "server.port": (
+        "Port must be an integer between 1 and 65535.",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 65535,
+    ),
 }
 
 
@@ -53,6 +63,13 @@ class SettingsService(ServiceBase):
                 detail=f"Editable: {', '.join(sorted(EDITABLE_SETTINGS))}.",
             )
         for key, value in changes.items():
+            validator = SETTING_VALIDATORS.get(key)
+            if validator and not validator[1](value):
+                message, _ = validator
+                raise ValidationFailedError(
+                    message,
+                    detail=f"{key} = {value!r}",
+                )
             row = await self.session.get(models.AppSetting, key)
             if row is None:
                 row = models.AppSetting(key=key, value_json=value)
@@ -102,6 +119,11 @@ class DiagnosticsService(ServiceBase):
             "database_path": str(self.settings.database_path),
             "database_status": "ok" if get_engine() is not None else "unavailable",
             "data_dir": str(self.settings.resolved_data_dir),
+            # Port the process is currently bound to (``running_port``) vs the
+            # port saved in settings that will apply after a restart
+            # (``configured_port``). Equal => no restart needed.
+            "running_port": self.settings.port,
+            "configured_port": await self._configured_port(),
             "ocr": status.model_dump(),
             "git_version": git_version,
             "mcp": {"mounted": True, "endpoint": "/mcp"},
@@ -117,6 +139,20 @@ class DiagnosticsService(ServiceBase):
             "worktree_count": worktrees,
             "session_storage_bytes": session_bytes,
         }
+
+    async def _configured_port(self) -> int:
+        """The ``server.port`` saved in settings, or the running port if unset.
+
+        Used to detect whether a restart is needed: when this differs from the
+        currently bound ``running_port``, the saved override has not yet taken
+        effect.
+        """
+
+        row = await self.session.get(models.AppSetting, "server.port")
+        value = row.value_json if row is not None else None
+        if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535:
+            return value
+        return self.settings.port
 
     async def recent_errors(self, *, limit: int = 10) -> list[dict[str, Any]]:
         """Last ``limit`` sanitized backend errors (failed jobs + error events)."""

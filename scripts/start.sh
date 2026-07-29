@@ -74,10 +74,17 @@ if [[ -f .env ]]; then
   . ./.env; set +a
 fi
 
+# Only export OCR_CC_PORT when the user explicitly passed --port. Otherwise
+# leave it unset so the backend falls through to the saved settings-UI port or
+# the default 8372 (precedence handled in app.__main__).
 if [[ -n "$PORT_OVERRIDE" ]]; then
   export OCR_CC_PORT="$PORT_OVERRIDE"
+  LAUNCH_PORT="--port $PORT_OVERRIDE"
+else
+  LAUNCH_PORT=""
 fi
 
 echo "[start] OpenCodeReview Manager → http://127.0.0.1:${OCR_CC_PORT:-8372}"
+echo "[start] (port resolved from --port / OCR_CC_PORT / saved setting / default)"
 cd backend
-exec "../$VENV_PY" -m app --port "${OCR_CC_PORT:-8372}"
+exec "../$VENV_PY" -m app $LAUNCH_PORT

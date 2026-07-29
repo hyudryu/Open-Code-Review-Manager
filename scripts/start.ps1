@@ -69,12 +69,18 @@ if (Test-Path (Join-Path $Root ".env")) {
     }
 }
 
+# Only set OCR_CC_PORT / pass --port when the user explicitly passed -Port.
+# Otherwise fall through to the saved settings-UI port or default 8372
+# (precedence handled in app.__main__).
 if ($Port) {
     $env:OCR_CC_PORT = [string]$Port
+    $LaunchArgs = @("--port", [string]$Port)
+} else {
+    $LaunchArgs = @()
 }
-$port = $env:OCR_CC_PORT
-if (-not $port) { $port = "8372" }
-Write-Host "[start] OpenCodeReview Manager -> http://127.0.0.1:$port"
+$displayPort = if ($env:OCR_CC_PORT) { $env:OCR_CC_PORT } else { "8372" }
+Write-Host "[start] OpenCodeReview Manager -> http://127.0.0.1:$displayPort"
+Write-Host "[start] (port resolved from -Port / OCR_CC_PORT / saved setting / default)"
 Set-Location (Join-Path $Root "backend")
-& $VenvPy -m app --port $port
+& $VenvPy -m app @LaunchArgs
 exit $LASTEXITCODE

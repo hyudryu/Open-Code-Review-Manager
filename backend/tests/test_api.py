@@ -141,6 +141,104 @@ async def test_settings_roundtrip(client) -> None:
     assert response.status_code == 422
 
 
+async def test_server_port_setting_roundtrip(client) -> None:
+    # Default value is exposed (the running port during tests).
+    response = await client.get("/api/v1/settings")
+    assert response.status_code == 200
+    assert "server.port" in response.json()
+
+    headers = csrf(client)
+    response = await client.patch(
+        "/api/v1/settings",
+        json={"changes": {"server.port": 9000}},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["server.port"] == 9000
+
+    # Persisted on reload.
+    response = await client.get("/api/v1/settings")
+    assert response.json()["server.port"] == 9000
+
+
+async def test_server_port_setting_validates_range(client) -> None:
+    headers = csrf(client)
+    for bad in (0, 65536, 8372.5, "8372", True):
+        response = await client.patch(
+            "/api/v1/settings",
+            json={"changes": {"server.port": bad}},
+            headers=headers,
+        )
+        assert response.status_code == 422, bad
+        assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_system_info_reports_running_and_configured_port(client) -> None:
+    headers = csrf(client)
+    # No saved override yet: configured_port == running_port.
+    response = await client.get("/api/v1/system/info")
+    info = response.json()
+    assert info["running_port"] == info["configured_port"]
+
+    # Save a different port: now they differ (restart needed).
+    await client.patch(
+        "/api/v1/settings",
+        json={"changes": {"server.port": 9001}},
+        headers=headers,
+    )
+    response = await client.get("/api/v1/system/info")
+    info = response.json()
+    assert info["configured_port"] == 9001
+    assert info["running_port"] != 9001
+
+
+async def test_resolve_port_precedence(settings, db, monkeypatch) -> None:
+    """Startup precedence: CLI > OCR_CC_PORT env > saved setting > default.
+
+    The ``settings``/``db`` fixtures wire the global singleton + migrated DB to
+    a temp data dir. We keep the fixture's ``database_url`` intact so the saved
+    setting is written and read through the same DB file.
+    """
+
+    from app.__main__ import _resolve_port, _read_saved_port
+    from app.core.config import Settings, set_settings, get_settings
+    from app.services.settings import SettingsService
+    from app.db.session import session_scope
+
+    # Base kwargs preserved across every reconstructed singleton, so the DB the
+    # service writes to == the DB _read_saved_port reads from.
+    base = dict(
+        data_dir=settings.data_dir,
+        database_url=settings.database_url,
+        allowed_roots=settings.allowed_roots,
+        path_restrictions_enabled=settings.path_restrictions_enabled,
+    )
+
+    monkeypatch.delenv("OCR_CC_PORT", raising=False)
+
+    # 4. Default: no env, no saved row.
+    set_settings(Settings(**base))
+    assert _resolve_port(None) == 8372
+
+    # 3. Saved setting wins over default (no env, no CLI).
+    async with session_scope() as session:
+        await SettingsService(session, settings=get_settings()).update(
+            {"server.port": 7000}
+        )
+    assert _read_saved_port() == 7000
+    assert _resolve_port(None) == 7000
+
+    # 1. CLI flag wins over saved and env.
+    assert _resolve_port(1234) == 1234
+
+    # 2. OCR_CC_PORT env wins over saved (CLI absent). Env must be set before
+    #    the Settings singleton is constructed for Pydantic to pick it up.
+    monkeypatch.setenv("OCR_CC_PORT", "8000")
+    set_settings(Settings(**base))  # reads OCR_CC_PORT at construction
+    assert _resolve_port(None) == 8000
+
+
+
 async def test_full_happy_path(client, repo, tmp_path) -> None:
     headers = csrf(client)
 
