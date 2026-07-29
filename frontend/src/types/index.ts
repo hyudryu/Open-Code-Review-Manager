@@ -441,6 +441,10 @@ export interface SystemInfo {
   database_path: string;
   database_status: string;
   data_dir: string;
+  /** Port the running process is currently bound to. */
+  running_port?: number;
+  /** Port saved in settings; applies on the next restart. */
+  configured_port?: number;
   ocr: OCRStatus;
   git_version: string | null;
   mcp: { mounted: boolean; endpoint: string };
@@ -463,4 +467,9 @@ export type SettingsMap = Record<string, unknown> & {
   "webhooks.allow_private_networks"?: boolean;
   "ocr.executable"?: string | null;
   "git.executable"?: string | null;
+  /**
+   * Port the backend binds on the next start. The running process cannot
+   * change ports, so a change here takes effect only after a restart.
+   */
+  "server.port"?: number;
 };

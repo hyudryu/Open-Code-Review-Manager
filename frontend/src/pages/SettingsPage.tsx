@@ -7,6 +7,7 @@ import {
   useOcrUpdateStatus,
   useReprobeOcr,
   useSettings,
+  useSystemInfo,
   useSystemOcr,
   useUpdateSettings,
 } from "../api/hooks";
@@ -133,10 +134,84 @@ function BooleanSetting({
   );
 }
 
+/**
+ * Server port override. The running process binds the port once at startup, so
+ * a change is persisted but only takes effect after a restart. When the saved
+ * port differs from the currently running port, a "Restart required" badge is
+ * shown so the user knows their change has not applied yet.
+ */
+function PortSetting({
+  settings,
+  runningPort,
+  configuredPort,
+  save,
+}: {
+  settings: Record<string, unknown> | undefined;
+  /** Port the running process is bound to (from system/info). */
+  runningPort?: number;
+  /** Port saved in settings that will apply after restart (from system/info). */
+  configuredPort?: number;
+  save: (changes: Record<string, unknown>) => void;
+}) {
+  const current = Number(settings?.["server.port"] ?? runningPort ?? 8372);
+  const [value, setValue] = useState(String(current));
+  useEffect(() => setValue(String(current)), [current]);
+
+  // Restart is needed when the saved (configured) port differs from the port
+  // the process is actually bound to. Falls back to the locally-edited value
+  // while system/info is loading.
+  const needsRestart =
+    runningPort !== undefined &&
+    configuredPort !== undefined &&
+    runningPort !== configuredPort;
+
+  return (
+    <SettingRow
+      label="Server port"
+      help="Port the backend binds on startup. Default 8372. Takes effect after a restart — the running process cannot change ports."
+    >
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <input
+          type="number"
+          aria-label="Server port"
+          min={1}
+          max={65535}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={() => {
+            const n = Number.parseInt(value, 10);
+            if (!Number.isNaN(n) && n !== current && n >= 1 && n <= 65535) {
+              save({ "server.port": n });
+            } else {
+              setValue(String(current));
+            }
+          }}
+          style={{
+            width: 90,
+            height: 30,
+            borderRadius: 6,
+            border: "1px solid var(--border-strong)",
+            background: "var(--bg-surface)",
+            color: "var(--text-primary)",
+            padding: "0 10px",
+            font: "var(--text-body)",
+          }}
+        />
+        {needsRestart ? (
+          <Badge tone="warning">Restart required</Badge>
+        ) : (
+          <Badge tone="success">Running on {runningPort ?? current}</Badge>
+        )}
+      </div>
+    </SettingRow>
+  );
+}
+
 export function SettingsPage() {
   const settings = useSettings();
   const update = useUpdateSettings();
   const health = useHealth();
+  const systemInfo = useSystemInfo();
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
   const reprobe = useReprobeOcr();
@@ -184,6 +259,12 @@ export function SettingsPage() {
           label={health.data?.status ?? "unknown"}
         />
       </SettingRow>
+      <PortSetting
+        settings={data}
+        runningPort={systemInfo.data?.running_port}
+        configuredPort={systemInfo.data?.configured_port}
+        save={save}
+      />
       <SettingRow
         label="Diagnostics"
         help="Versions, paths, worker status, and storage usage."
