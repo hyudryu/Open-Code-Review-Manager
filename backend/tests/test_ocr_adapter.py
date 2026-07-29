@@ -52,8 +52,8 @@ Commands:
   version      Show version information
 """
 
-# Help lines exactly as printed by a binary built with
-# patches/open-code-review/0001-planning-controls.patch applied.
+# Help lines exactly as printed by a patched ocr binary that includes
+# the planning-controls flags.
 PATCHED_HELP_SUFFIX = """
   --plan-mode string            planning behavior: auto (threshold-based), always, never (default "auto")
   --plan-threshold int          changed-line threshold for planning in auto mode (0 = template default)

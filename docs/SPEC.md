@@ -2558,8 +2558,6 @@ open-code-review-control-center/
 │   ├── tests/
 │   ├── package.json
 │   └── vite.config.ts
-├── patches/
-│   └── open-code-review/
 ├── scripts/
 ├── docs/
 ├── .github/

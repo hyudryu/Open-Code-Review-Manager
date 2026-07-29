@@ -57,7 +57,7 @@ Maps every acceptance criterion of SPEC §37 to automated tests
    emits the real result/session JSON shapes per upstream source). The OCR
    compatibility probe, command generation, result parsing, and session
    parsing are grounded in the upstream source layout (shallow clone,
-   2026-07-23, `3355baea`) and in `patches/open-code-review/NOTES.md`.
+   2026-07-23, `3355baea`).
    `test_ocr_adapter.py::test_detect_real_binary` auto-runs when a real
    binary is present (skipped here). Live end-to-end **review quality** (real
    LLM output usefulness) is inherently not verifiable without a real
