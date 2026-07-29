@@ -127,7 +127,13 @@ class QueueWorker:
         if self._stop.is_set() or await self._is_paused():
             return 0
         global_limit, per_project, per_provider = await self._limits()
-        capacity = global_limit - self.runner.active_count
+        # Use the count of dispatched tasks (self._tasks) for capacity, not
+        # self.runner.active_count. Tasks are registered in self._tasks
+        # synchronously at dispatch time, while self._active is populated
+        # asynchronously when each task starts running. Using _tasks avoids
+        # a race where the dispatch loop over-subscribes before the first
+        # task has had a chance to register in the runner.
+        capacity = global_limit - len(self._tasks)
         if capacity <= 0:
             return 0
 
@@ -174,7 +180,9 @@ class QueueWorker:
         """Scan for jobs stuck in running/preparing whose runner task is gone.
 
         Checks two conditions for each stale job:
-        1. Process PID is dead → ``process_died``
+        1. Process PID is set but no longer alive → ``process_died``
+           (only for jobs in 'running' state, and only after a grace period
+           to avoid killing jobs whose process is just starting)
         2. Runtime exceeded ``ocr_process_timeout_seconds`` → ``process_timeout``
 
         Only jobs NOT in ``self._tasks`` are considered — actively-managed
@@ -183,9 +191,11 @@ class QueueWorker:
         Returns the number of jobs transitioned to ``failed``.
         """
 
+        from datetime import datetime, timezone
+
         factory = get_session_factory()
         reaped = 0
-        now = time.monotonic()
+        grace_period = 120.0  # 2-minute grace before checking PID liveness
         async with factory() as session:
             result = await session.execute(
                 select(models.ReviewJob).where(
@@ -203,32 +213,42 @@ class QueueWorker:
                 started = job.started_at
                 timeout = self.settings.ocr_process_timeout_seconds
 
-                # Condition 1: process PID is set but no longer alive.
-                if pid is not None and not _pid_alive(pid):
-                    logger.warning(
-                        "reaper_process_died",
-                        job_id=job.id,
-                        pid=pid,
-                        status=job.status,
-                    )
-                    queue = QueueService(session, settings=self.settings)
-                    try:
-                        await queue.transition(
-                            job,
-                            "failed",
-                            message=f"OCR process exited unexpectedly (PID {pid} no longer exists).",
-                            error_code="process_died",
+                # Condition 1: running job with a dead PID.
+                # Only check 'running' jobs (not 'preparing' — those may not
+                # have a PID yet). Require a grace period since start to avoid
+                # killing jobs whose subprocess is still spinning up.
+                if (
+                    job.status == "running"
+                    and pid is not None
+                    and started
+                ):
+                    started_dt = started if isinstance(started, datetime) else datetime.fromisoformat(str(started))
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                    if elapsed > grace_period and not _pid_alive(pid):
+                        logger.warning(
+                            "reaper_process_died",
+                            job_id=job.id,
+                            pid=pid,
+                            elapsed=elapsed,
                         )
-                        job.process_id = None
-                        reaped += 1
-                    except Exception:
-                        logger.exception("reaper_transition_failed", job_id=job.id)
-                    continue
+                        queue = QueueService(session, settings=self.settings)
+                        try:
+                            await queue.transition(
+                                job,
+                                "failed",
+                                message=f"OCR process exited unexpectedly (PID {pid} no longer exists after {elapsed:.0f}s).",
+                                error_code="process_died",
+                            )
+                            job.process_id = None
+                            reaped += 1
+                        except Exception:
+                            logger.exception("reaper_transition_failed", job_id=job.id)
+                        continue
 
                 # Condition 2: runtime exceeded the process timeout.
                 if started:
-                    from datetime import datetime, timezone
-
                     started_dt = started if isinstance(started, datetime) else datetime.fromisoformat(str(started))
                     if started_dt.tzinfo is None:
                         started_dt = started_dt.replace(tzinfo=timezone.utc)
