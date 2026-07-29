@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, func, select
@@ -31,6 +32,37 @@ class ProjectService(ServiceBase):
         if project is None:
             raise NotFoundError("Project", project_id)
         return project
+
+    async def find_by_path(self, absolute_path: str) -> models.Project | None:
+        """Return the project registered for the repository at
+        ``absolute_path`` (resolved to its git top-level, case-normalized),
+        or ``None`` when none is registered or the path isn't a usable repo.
+
+        Accepts a subdirectory of a registered repo — it resolves to the
+        top-level and matches it.
+        """
+
+        # validate_repo without existing_paths so an already-registered repo
+        # still resolves instead of raising "duplicate".
+        try:
+            info = await self.git.validate_repo(absolute_path, existing_paths=None)
+        except (RepoValidationError, GitError):
+            return None
+        top_level = str(info.path)
+        result = await self.session.execute(
+            select(models.Project).where(models.Project.absolute_path == top_level)
+        )
+        project = result.scalar_one_or_none()
+        if project is not None:
+            return project
+        # Fallback: case-insensitive match against stored paths in case of
+        # historical drift in casing on case-insensitive filesystems.
+        normcase_top = os.path.normcase(top_level)
+        result = await self.session.execute(select(models.Project))
+        for row in result.scalars():
+            if os.path.normcase(row.absolute_path) == normcase_top:
+                return row
+        return None
 
     async def _existing_paths(self) -> set[str]:
         result = await self.session.execute(select(models.Project.absolute_path))

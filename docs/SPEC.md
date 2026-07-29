@@ -1339,6 +1339,36 @@ Input:
 }
 ```
 
+### `ocr_add_project`
+
+Registers the repository at `absolute_path` and returns its project id.
+Idempotent: if the repository (resolved to its git top-level) is already
+registered, the existing project is returned with `already_registered: true`.
+Use it to recover when another tool returns `not_found` for a project id.
+
+Input:
+
+```json
+{
+  "absolute_path": "/absolute/path/to/git/repo",
+  "display_name": "optional override"
+}
+```
+
+Returns:
+
+```json
+{
+  "id": "uuid",
+  "display_name": "repo",
+  "absolute_path": "/absolute/path/to/git/repo",
+  "default_branch": "main",
+  "current_branch": "main",
+  "is_available": true,
+  "already_registered": false
+}
+```
+
 ### `ocr_list_branches`
 
 Input:

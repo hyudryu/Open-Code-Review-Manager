@@ -11,6 +11,7 @@ job is submitted from the UI, the API, or an MCP client.
 | Tool | Description | Key arguments |
 |---|---|---|
 | `ocr_list_projects` | List registered projects | `include_unavailable?` |
+| `ocr_add_project` | Register a repository and return its `project_id` (**idempotent** — returns the existing project if already registered) | `absolute_path`, `display_name?` |
 | `ocr_list_branches` | Cached branches for a project | `project_id`, `refresh?`, `fetch?` |
 | `ocr_list_profiles` | List review profiles | — |
 | `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs, `pr_number?` |
@@ -34,6 +35,34 @@ flags: `terminal` and `wait_expired`. If `wait_expired` is true the job is
 still in flight — call again to keep waiting. Alternatively, read
 `ocr://jobs/{job_id}` and poll, then fetch findings via `ocr_get_findings`
 or `ocr://jobs/{job_id}/result`.
+
+### Registering a project on demand
+
+Every review tool takes a `project_id` — the repository must already be
+registered. If you call `ocr_submit_review` or `ocr_preview_review` with a
+project that isn't registered (for example because the agent is operating on
+its own current working directory), the response is a structured
+`not_found` error rather than a thrown exception. Recover by registering the
+repository, then retrying:
+
+```python
+# The repo the agent is working in isn't registered yet.
+add = await session.call_tool("ocr_add_project", {
+    "absolute_path": "/path/to/repo",     # the agent's current repo
+})
+project_id = json.loads(add.content[0].text)["id"]   # safe to reuse immediately
+
+# Now the review tools accept it.
+job = await session.call_tool("ocr_submit_review", {
+    "project_id": project_id, "mode": "commit", "commit_ref": "HEAD",
+})
+```
+
+`ocr_add_project` is idempotent: it resolves the path to its git top-level
+and returns the matching existing project (with `already_registered: true`)
+if one is already registered, so calling it defensively before a review is
+safe. If the path isn't a usable git repository, it returns a
+`validation_failed` error with the reason.
 
 ### Blocking-wait example flow
 

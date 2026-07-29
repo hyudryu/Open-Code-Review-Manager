@@ -117,7 +117,7 @@ async def test_mcp_status_endpoint(client) -> None:
     assert body["transport"] == "streamable-http"
     assert body["path"] == "/mcp"
     assert body["url"].endswith("/mcp")
-    assert body["tool_count"] == 10
+    assert body["tool_count"] == 11
     assert body["resource_count"] == 7
     assert body["prompt_count"] == 5
 
