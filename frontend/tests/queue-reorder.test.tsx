@@ -24,7 +24,6 @@ function makeJob(id: string, targetRef: string): Job {
     queue_position: null,
     status: "queued",
     status_message: null,
-    error_code: null,
     paused: false,
     configuration_snapshot_json: null,
     generated_command_json: null,
@@ -113,10 +112,10 @@ describe("QueuePage reorder", () => {
       name: /queued jobs in execution order/i,
     });
 
-    // Initial order: alpha then beta.
+    // Initial order: alpha then beta (target_ref → base_ref).
     let rows = within(list).getAllByRole("listitem");
-    expect(rows[0]).toHaveTextContent("main → alpha");
-    expect(rows[1]).toHaveTextContent("main → beta");
+    expect(rows[0]).toHaveTextContent("alpha → main");
+    expect(rows[1]).toHaveTextContent("beta → main");
 
     // Drag alpha below beta.
     fireEvent.dragStart(rows[0], {
@@ -132,8 +131,8 @@ describe("QueuePage reorder", () => {
     // After the API failure the visible order reverts to the server order.
     await waitFor(() => {
       rows = within(list).getAllByRole("listitem");
-      expect(rows[0]).toHaveTextContent("main → alpha");
-      expect(rows[1]).toHaveTextContent("main → beta");
+      expect(rows[0]).toHaveTextContent("alpha → main");
+      expect(rows[1]).toHaveTextContent("beta → main");
     });
   });
 });
