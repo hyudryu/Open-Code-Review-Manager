@@ -397,14 +397,11 @@ export function QueuePage() {
                   >
                     <IconGrip size={14} />
                   </span>
-                  <span className={styles.priority} aria-label={`priority ${job.priority}`}>
-                    {job.priority}
-                    {job.paused ? (
-                      <span className={layout.small} style={{ display: "block", fontSize: 10 }}>
-                        paused
-                      </span>
-                    ) : null}
-                  </span>
+                  {job.paused ? (
+                    <span className={layout.small} style={{ fontSize: 10, color: "var(--text-tertiary)" }}>
+                      paused
+                    </span>
+                  ) : null}
                   <Link to={`/jobs/${job.id}`} className={styles.ellipsize} style={{ color: "var(--text-primary)" }}>
                     {projectName(job.project_id)}
                   </Link>
@@ -439,9 +436,8 @@ export function QueuePage() {
           ) : (
             <div className={styles.queueRows}>
               {activeJobs.map((job) => (
-                <div key={job.id} className={styles.queueRow} style={{ gridTemplateColumns: "24px 52px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}>
+                <div key={job.id} className={styles.queueRow} style={{ gridTemplateColumns: "24px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}>
                   <span />
-                  <span className={styles.priority}>{job.priority}</span>
                   <Link to={`/jobs/${job.id}`} className={styles.ellipsize} style={{ color: "var(--text-primary)" }}>
                     {projectName(job.project_id)}
                   </Link>
@@ -486,11 +482,10 @@ export function QueuePage() {
                         styles.queueRowClickable,
                         isExpanded ? styles.queueRowExpanded : "",
                       ].filter(Boolean).join(" ")}
-                      style={{ gridTemplateColumns: "24px 52px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}
+                      style={{ gridTemplateColumns: "24px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}
                       onClick={() => setExpandedJob(isExpanded ? null : job.id)}
                     >
                       <span />
-                      <span className={styles.priority}>{job.priority}</span>
                       <Link
                         to={`/reviews/${job.id}`}
                         className={styles.ellipsize}
