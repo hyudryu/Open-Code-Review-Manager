@@ -92,6 +92,26 @@ class ProviderTestOut(BaseModel):
     next_action: str | None = None
 
 
+class ProviderHealthOut(BaseModel):
+    """Result of the list-page ``GET /models`` reachability probe.
+
+    Drives the status dot on the Providers table. ``online`` is a green dot
+    regardless of whether a credential was sent (keyless local servers that
+    answer 2xx are genuinely up). ``auth_needed`` (401/403) is yellow.
+    ``offline`` is red. ``reachable``/``authed`` give the UI the nuance if it
+    wants it; ``status`` is the canonical bucket.
+    """
+
+    ok: bool
+    status: Literal["online", "auth_needed", "offline", "unauthorized"]
+    reachable: bool
+    authed: bool
+    elapsed_ms: float | None = None
+    http_status: int | None = None
+    detail: str | None = None  # sanitized: never contains the credential
+    checked_at: datetime
+
+
 class ProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None

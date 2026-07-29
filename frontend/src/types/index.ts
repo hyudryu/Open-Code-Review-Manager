@@ -109,6 +109,29 @@ export interface ProviderTestResult {
   next_action?: string | null;
 }
 
+/**
+ * Result of the list-page GET /models reachability probe. Drives the status
+ * dot on the Providers table. `status` is the canonical bucket; `reachable`
+ * /`authed` give the UI nuance (a keyless 2xx is `online` with authed=false).
+ */
+export type ProviderHealthStatus =
+  | "online"
+  | "auth_needed"
+  | "offline"
+  | "unauthorized";
+
+export interface ProviderHealth {
+  ok: boolean;
+  status: ProviderHealthStatus;
+  reachable: boolean;
+  authed: boolean;
+  elapsed_ms: number | null;
+  http_status: number | null;
+  /** Sanitized: never contains the credential. */
+  detail: string | null;
+  checked_at: string;
+}
+
 // --- review profiles --------------------------------------------------------
 
 export type PlanMode = "auto" | "always" | "never";

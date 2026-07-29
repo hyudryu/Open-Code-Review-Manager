@@ -9,6 +9,7 @@ writes OCR config or logs the credential.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
@@ -30,6 +31,11 @@ MAX_REPLY_CHARS = 120
 
 #: A ping must stay quick even when the provider allows long job timeouts.
 PING_TIMEOUT_CAP_SECONDS = 60.0
+
+#: A list-page health probe must stay snappy — dead providers cannot stall
+#: the whole table. Five seconds is enough for a slow cold start while
+#: keeping the page interactive.
+HEALTH_TIMEOUT_CAP_SECONDS = 5.0
 
 
 class ConnectionTestResult(BaseModel):
@@ -284,4 +290,183 @@ async def ping_llm(
         elapsed_ms=elapsed_ms,
         http_status=response.status_code,
         reply=excerpt,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lightweight list-page health probe (no model required).
+# ---------------------------------------------------------------------------
+
+
+class HealthProbeResult(BaseModel):
+    """Structured result of a keyless ``GET /models`` reachability probe.
+
+    ``reachable`` distinguishes "the host answered" from "it answered 2xx":
+    a keyless provider returning 401/403 is reachable but not authenticated,
+    which the UI renders as a distinct "auth needed" state. ``authed`` is
+    True only when a credential was supplied AND accepted (2xx).
+    """
+
+    ok: bool
+    status: Literal["online", "auth_needed", "offline", "unauthorized"]
+    reachable: bool
+    authed: bool
+    elapsed_ms: float | None = None
+    http_status: int | None = None
+    detail: str | None = None  # sanitized: what failed / why
+    checked_at: datetime
+
+
+def _health_headers(resolution: ProviderResolution) -> dict[str, str]:
+    """Auth headers for ``GET /models`` (sent only when a credential exists)."""
+
+    headers: dict[str, str] = {}
+    token = resolution.token
+    if not token:
+        return headers
+    protocol = resolution.protocol or "openai"
+    if protocol == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+        headers[resolution.auth_header or "x-api-key"] = token
+    elif resolution.auth_header:
+        headers[resolution.auth_header] = token
+    else:
+        headers["Authorization"] = f"Bearer {token}"
+    headers.update(resolution.extra_headers)
+    return headers
+
+
+async def probe_health(
+    resolution: ProviderResolution,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+) -> HealthProbeResult:
+    """Lightweight ``GET /models`` reachability probe; never raises, never logs secrets.
+
+    Unlike :func:`ping_llm`, this sends no model/credentials-shaped body and
+    needs no model id, so it works for every provider on the list page
+    (including keyless local servers). It only asks "did the endpoint answer
+    our request?" — a 2xx is "online", 401/403 is "auth needed", anything
+    else is "offline".
+    """
+
+    base_url = (resolution.base_url or "").rstrip("/")
+    protocol = resolution.protocol or "openai"
+
+    # Register secrets with the process-wide redactor before any logging.
+    redactor.register(resolution.token)
+    for value in resolution.extra_headers.values():
+        redactor.register(value)
+
+    headers = _health_headers(resolution)
+    timeout = httpx.Timeout(HEALTH_TIMEOUT_CAP_SECONDS)
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(
+        timeout=timeout, follow_redirects=False
+    )
+    start = time.monotonic()
+    try:
+        response = await client.get(base_url + "/models", headers=headers)
+        if response.status_code == 404 and not base_url.endswith("/v1"):
+            # Base URL without the /v1 suffix — retry against the versioned path.
+            response = await client.get(
+                base_url + "/v1/models", headers=headers
+            )
+        elapsed_ms = (time.monotonic() - start) * 1000
+    except httpx.TimeoutException:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info("provider_health_timeout", protocol=protocol)
+        return HealthProbeResult(
+            ok=False,
+            status="offline",
+            reachable=False,
+            authed=False,
+            elapsed_ms=elapsed_ms,
+            detail=f"No response within {timeout.read:.0f} s.",
+            checked_at=datetime.now(timezone.utc),
+        )
+    except httpx.HTTPError as exc:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info(
+            "provider_health_transport_error",
+            protocol=protocol,
+            error=type(exc).__name__,
+        )
+        return HealthProbeResult(
+            ok=False,
+            status="offline",
+            reachable=False,
+            authed=False,
+            elapsed_ms=elapsed_ms,
+            detail=redact_text(f"{type(exc).__name__}: {exc}")[
+                :MAX_FAILURE_BODY_CHARS
+            ],
+            checked_at=datetime.now(timezone.utc),
+        )
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    # We reached a responding server — that is "reachable" regardless of
+    # the status it returned. A keyless 2xx means the server genuinely
+    # does not require auth, so it counts as authed too.
+    reachable = True
+    authed = 200 <= response.status_code < 300 and bool(resolution.token)
+
+    if response.status_code in (401, 403):
+        logger.info(
+            "provider_health_auth_needed",
+            protocol=protocol,
+            http_status=response.status_code,
+        )
+        return HealthProbeResult(
+            ok=False,
+            status="auth_needed",
+            reachable=reachable,
+            authed=False,
+            elapsed_ms=elapsed_ms,
+            http_status=response.status_code,
+            detail=redact_text(
+                f"HTTP {response.status_code}: "
+                f"{response.text[:MAX_FAILURE_BODY_CHARS]}"
+            ),
+            checked_at=datetime.now(timezone.utc),
+        )
+
+    if not 200 <= response.status_code < 300:
+        message, _ = _failure_for_status(response.status_code)
+        logger.info(
+            "provider_health_http_error",
+            protocol=protocol,
+            http_status=response.status_code,
+        )
+        return HealthProbeResult(
+            ok=False,
+            status="offline",
+            reachable=reachable,
+            authed=False,
+            elapsed_ms=elapsed_ms,
+            http_status=response.status_code,
+            detail=redact_text(
+                f"{message} "
+                f"HTTP {response.status_code}: "
+                f"{response.text[:MAX_FAILURE_BODY_CHARS]}"
+            ),
+            checked_at=datetime.now(timezone.utc),
+        )
+
+    logger.info(
+        "provider_health_ok",
+        protocol=protocol,
+        http_status=response.status_code,
+        elapsed_ms=round(elapsed_ms),
+    )
+    return HealthProbeResult(
+        ok=True,
+        status="online",
+        reachable=reachable,
+        authed=authed,
+        elapsed_ms=elapsed_ms,
+        http_status=response.status_code,
+        checked_at=datetime.now(timezone.utc),
     )

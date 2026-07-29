@@ -25,6 +25,7 @@ import type {
   PreviewFile,
   Project,
   Provider,
+  ProviderHealth,
   ProviderModel,
   ProviderTestResult,
   PullRequestList,
@@ -53,6 +54,7 @@ export const qk = {
   providers: ["providers"] as const,
   provider: (id: string) => ["providers", id] as const,
   models: (id: string) => ["providers", id, "models"] as const,
+  providerHealth: (id: string) => ["providers", id, "health"] as const,
   profiles: ["profiles"] as const,
   profile: (id: string) => ["profiles", id] as const,
   jobs: (filters?: Record<string, unknown>) => ["jobs", filters ?? {}] as const,
@@ -409,6 +411,34 @@ export function useTestProvider() {
         modelId ? { model_id: modelId } : undefined,
       ),
   });
+}
+
+/**
+ * List-page reachability probe: GET /models against the provider. Read-only
+ * (no CSRF), so it can fire in parallel for every table row. Cached 30s so
+ * revisits don't re-hit dead providers; `retry: false` keeps a single 5s
+ * backend timeout from cascading. `enabled` is false for disabled providers
+ * (nothing to probe) and when no id is present.
+ */
+export function useProviderHealth(
+  id: string,
+  options?: Partial<UseQueryOptions<ProviderHealth>>,
+) {
+  return useQuery({
+    queryKey: qk.providerHealth(id),
+    queryFn: () => api.get<ProviderHealth>(`/api/v1/providers/${id}/health`),
+    enabled: Boolean(id),
+    staleTime: 30_000,
+    retry: false,
+    ...options,
+  });
+}
+
+/** Invalidate every provider-health cache entry (header "Refresh status"). */
+export function useInvalidateProviderHealth() {
+  const qc = useQueryClient();
+  return () =>
+    qc.invalidateQueries({ queryKey: ["providers"], exact: false });
 }
 
 export function useDiscoverModels() {

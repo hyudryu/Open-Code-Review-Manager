@@ -9,6 +9,7 @@ from app.schemas.providers import (
     ManualModelCreate,
     ModelOut,
     ProviderCreate,
+    ProviderHealthOut,
     ProviderOut,
     ProviderTestOut,
     ProviderUpdate,
@@ -73,6 +74,21 @@ async def test_provider(
 ):
     result = await service.test_connection(provider_id, model_id=model_id)
     return ProviderTestOut(**result.model_dump())
+
+
+@router.get("/{provider_id}/health", response_model=ProviderHealthOut)
+async def provider_health(
+    provider_id: str,
+    service: ProviderService = Depends(provider_service),
+):
+    """List-page reachability probe: GET /models against the provider (SPEC §9).
+
+    GET (no CSRF) so it can fire in parallel for every table row on page
+    load. No model id required — works for keyless local servers too.
+    """
+
+    result = await service.health_check(provider_id)
+    return ProviderHealthOut(**result.model_dump())
 
 
 @router.post("/{provider_id}/discover-models", response_model=list[ModelOut])
