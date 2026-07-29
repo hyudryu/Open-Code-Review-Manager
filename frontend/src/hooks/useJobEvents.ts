@@ -8,7 +8,9 @@
 
 import { useEffect, useReducer, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
 import { qk } from "../api/hooks";
+import type { JobEventRecord } from "../types";
 
 export interface LiveFileProgress {
   path: string;
@@ -64,6 +66,34 @@ export const initialLiveJobState: LiveJobState = {
   terminal: false,
   lastEventId: 0,
 };
+
+export function liveProgressTotal(
+  inventoryTotal: number | null,
+  observedFileCount: number,
+): number | null {
+  return inventoryTotal ?? (observedFileCount > 0 ? observedFileCount : null);
+}
+
+export function liveFileProgress(state: LiveJobState) {
+  const files = Array.from(state.files.values());
+  const completed = files.filter(
+    (file) => file.state === "completed" || file.state === "failed",
+  ).length;
+  const total = liveProgressTotal(state.totalFiles, files.length);
+  const percent = total && total > 0
+    ? Math.min(100, Math.round((completed / total) * 100))
+    : 0;
+  return { files, completed, total, percent };
+}
+
+export function unseenJobEvents(
+  events: JobEventRecord[],
+  seenIds: ReadonlySet<number>,
+): JobEventRecord[] {
+  return [...events]
+    .sort((a, b) => a.id - b.id)
+    .filter((event) => !seenIds.has(event.id));
+}
 
 export function liveJobReducer(
   state: LiveJobState,
@@ -169,10 +199,12 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
   const [state, dispatch] = useReducer(liveJobReducer, initialLiveJobState);
   const qc = useQueryClient();
   const sourceRef = useRef<EventSource | null>(null);
+  const seenEventIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!jobId || !enabled) return undefined;
     dispatch({ type: "reset" });
+    seenEventIdsRef.current = new Set();
 
     const source = new EventSource(`/api/v1/jobs/${jobId}/events`);
     sourceRef.current = source;
@@ -180,16 +212,16 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
     source.onopen = () => dispatch({ type: "connected", value: true });
     source.onerror = () => dispatch({ type: "connected", value: false });
 
-    const handle = (eventType: string) => (event: MessageEvent<string>) => {
-      let payload: Record<string, unknown> = {};
-      try {
-        payload = event.data ? (JSON.parse(event.data) as Record<string, unknown>) : {};
-      } catch {
-        return;
+    const applyEvent = (
+      eventType: string,
+      payload: Record<string, unknown>,
+      id: number | null,
+    ) => {
+      if (id !== null) {
+        if (seenEventIdsRef.current.has(id)) return;
+        seenEventIdsRef.current.add(id);
       }
-      const id = event.lastEventId ? Number.parseInt(event.lastEventId, 10) : null;
-      dispatch({ type: "event", eventType, payload, id: Number.isNaN(id) ? null : id });
-
+      dispatch({ type: "event", eventType, payload, id });
       if (
         TERMINAL_EVENTS.has(eventType) ||
         (eventType === "job.status" &&
@@ -208,6 +240,19 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       }
     };
 
+    const handle = (eventType: string) => (event: MessageEvent<string>) => {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = event.data ? (JSON.parse(event.data) as Record<string, unknown>) : {};
+      } catch {
+        return;
+      }
+      const parsedId = event.lastEventId
+        ? Number.parseInt(event.lastEventId, 10)
+        : Number.NaN;
+      applyEvent(eventType, payload, Number.isNaN(parsedId) ? null : parsedId);
+    };
+
     const types = [
       "job.status",
       "job.log",
@@ -224,7 +269,24 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
     ];
     for (const type of types) source.addEventListener(type, handle(type));
 
+    const pollHistory = async () => {
+      try {
+        const events = await api.get<JobEventRecord[]>(
+          `/api/v1/jobs/${jobId}/events/history`,
+          { limit: 1000 },
+        );
+        for (const event of unseenJobEvents(events, seenEventIdsRef.current)) {
+          applyEvent(event.event_type, event.payload ?? {}, event.id);
+        }
+      } catch {
+        // SSE remains the primary transport; the next poll retries reconciliation.
+      }
+    };
+    void pollHistory();
+    const pollTimer = window.setInterval(() => void pollHistory(), 2_000);
+
     return () => {
+      window.clearInterval(pollTimer);
       source.close();
       sourceRef.current = null;
     };

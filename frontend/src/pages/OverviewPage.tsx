@@ -15,7 +15,12 @@ import {
   useSystemOcr,
   useUpdateProfile,
 } from "../api/hooks";
-import { useJobEvents } from "../hooks/useJobEvents";
+import {
+  liveFileProgress,
+  type LiveJobState,
+  useJobEvents,
+} from "../hooks/useJobEvents";
+import { useSpeedLearner } from "../hooks/use-speed-learner";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui";
 import { IconFolder, IconPlus } from "../components/ui/icons";
@@ -103,8 +108,7 @@ function activeReviewTarget(job: Job): string {
 }
 
 /** Auto-scrolling live log pane. Sticks to bottom unless the user scrolls up. */
-function LiveLogPane({ jobId }: { jobId: string }) {
-  const live = useJobEvents(jobId, true);
+function LiveLogPane({ live }: { live: LiveJobState }) {
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
@@ -151,6 +155,61 @@ function LiveLogPane({ jobId }: { jobId: string }) {
         </span>
       ))}
     </div>
+  );
+}
+
+function ActiveReviewActivity({
+  job,
+  isExpanded,
+  estimateRemaining,
+}: {
+  job: Job;
+  isExpanded: boolean;
+  estimateRemaining: (job: Job, completedFiles: number, totalFiles: number | null) => string | null;
+}) {
+  const live = useJobEvents(job.id, true);
+  const progress = useMemo(() => liveFileProgress(live), [live]);
+  const estimatedRemaining = estimateRemaining(job, progress.completed, progress.total);
+  const phase = live.phase
+    ? live.phase.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : null;
+  const progressLabel = progress.total === null
+    ? phase ?? "Discovering files"
+    : `${progress.completed} of ${progress.total} files`;
+
+  return (
+    <>
+      <div
+        className={styles.progressBar}
+        role="progressbar"
+        aria-label={`Review progress: ${progressLabel}`}
+        aria-valuemin={0}
+        aria-valuemax={progress.total && progress.total > 0 ? progress.total : 1}
+        aria-valuenow={progress.completed}
+      >
+        <div
+          className={styles.progressFill}
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+      <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
+        {progressLabel}
+      </p>
+      <p
+        className={layout.small}
+        style={{ marginTop: 2, color: "var(--text-tertiary)" }}
+        title="Estimated from completed reviews using the same model and concurrency when available."
+      >
+        {estimatedRemaining ? `Estimated time remaining: ~${estimatedRemaining}` : "Estimating time remaining…"}
+      </p>
+      {isExpanded ? (
+        <LiveLogPane live={live} />
+      ) : (
+        <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
+          Click to view live terminal output
+        </p>
+      )}
+    </>
   );
 }
 
@@ -239,6 +298,7 @@ export function OverviewPage() {
   const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
   const cancelJob = useCancelJob();
+  const speedLearner = useSpeedLearner();
 
   const activeJobs = useMemo(
     () =>
@@ -366,18 +426,11 @@ export function OverviewPage() {
                       </div>
                     </div>
                     <p className={layout.small}>{activeReviewTarget(job)}</p>
-                    <div className={styles.progressBar} aria-hidden="true">
-                      <div
-                        className={`${styles.progressFill} ${styles.progressFillIndeterminate}`}
-                      />
-                    </div>
-                    {isExpanded ? (
-                      <LiveLogPane jobId={job.id} />
-                    ) : (
-                      <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
-                        Click to view live terminal output
-                      </p>
-                    )}
+                    <ActiveReviewActivity
+                      job={job}
+                      isExpanded={isExpanded}
+                      estimateRemaining={speedLearner.estimateActive}
+                    />
                   </div>
                 );
               })

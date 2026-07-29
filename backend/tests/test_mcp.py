@@ -25,6 +25,7 @@ async def test_mcp_server_builds() -> None:
         "ocr_preview_review",
         "ocr_submit_review",
         "ocr_get_job",
+        "ocr_get_job_results",
         "ocr_get_findings",
         "ocr_cancel_job",
         "ocr_retry_job",

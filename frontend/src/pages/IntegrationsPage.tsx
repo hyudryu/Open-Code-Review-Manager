@@ -49,8 +49,9 @@ export function IntegrationsPage() {
             </dd>
             <dt>Semantics</dt>
             <dd>
-              Submissions are asynchronous — the caller receives a durable job ID and polls
-              with <code>ocr_get_job</code> or reads result resources.
+              Submissions are asynchronous — the caller receives a durable job ID, checks
+              status with <code>ocr_get_job</code>, or waits with{" "}
+              <code>ocr_get_job_results</code> for the complete export.
             </dd>
           </dl>
           <p className={layout.small} style={{ margin: 0 }}>

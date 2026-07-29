@@ -9,10 +9,9 @@ import { TERMINAL_STATUSES, type Job } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
-type RangeKey = "1d" | "7d" | "30d" | "custom";
+export type RangeKey = "7d" | "30d" | "custom";
 
-const RANGE_LABELS: Record<RangeKey, string> = {
-  "1d": "1D",
+export const RANGE_LABELS: Record<RangeKey, string> = {
   "7d": "7D",
   "30d": "30D",
   custom: "Custom",
@@ -26,13 +25,11 @@ interface DayBucket {
   reviews: number;
 }
 
-/** Build daily buckets covering [startDate, today] inclusive. */
-function buildBuckets(jobs: Job[], startDate: Date): DayBucket[] {
+/** Build daily buckets covering [startDate, endDate] inclusive. */
+export function buildBuckets(jobs: Job[], startDate: Date, endDate: Date): DayBucket[] {
   const buckets: DayBucket[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
-  for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
     const dayKey = d.toDateString();
     const dayJobs = jobs.filter(
       (j) => j.completed_at && new Date(j.completed_at).toDateString() === dayKey,
@@ -54,19 +51,53 @@ function buildBuckets(jobs: Job[], startDate: Date): DayBucket[] {
   return buckets;
 }
 
-function startDateForRange(range: RangeKey, customFrom: string): Date {
+function formatDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setHours(0, 0, 0, 0);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function dateBoundsForRange(
+  range: RangeKey,
+  customFrom: string,
+  customTo: string,
+  now = new Date(),
+): { startDate: Date; endDate: Date } {
+  const endDate = new Date(now);
+  endDate.setHours(0, 0, 0, 0);
+
   if (range === "custom") {
-    const d = new Date(customFrom);
-    if (!Number.isNaN(d.getTime())) {
-      d.setHours(0, 0, 0, 0);
-      return d;
-    }
+    const parsedFrom = parseDateInput(customFrom);
+    const parsedTo = parseDateInput(customTo);
+    const customEnd = parsedTo && parsedTo <= endDate ? parsedTo : endDate;
+    const customStart = parsedFrom && parsedFrom <= customEnd ? parsedFrom : customEnd;
+    return { startDate: customStart, endDate: customEnd };
   }
-  const days = range === "1d" ? 0 : range === "7d" ? 6 : 29;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  d.setHours(0, 0, 0, 0);
-  return d;
+
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - (range === "7d" ? 6 : 29));
+  return { startDate, endDate };
+}
+
+export function isDateInRange(
+  value: string,
+  startDate: Date,
+  endDate: Date,
+): boolean {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const endExclusive = new Date(endDate);
+  endExclusive.setDate(endExclusive.getDate() + 1);
+  return date >= startDate && date < endExclusive;
 }
 
 /** Reusable histogram chart with hover tooltips. */
@@ -313,12 +344,16 @@ export function UsagePage() {
 
   const [range, setRange] = useState<RangeKey>("7d");
   const [modelFilter, setModelFilter] = useState<string>("all");
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateInput(new Date());
   const [customFrom, setCustomFrom] = useState(
-    new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10),
+    formatDateInput(new Date(Date.now() - 6 * 86_400_000)),
   );
+  const [customTo, setCustomTo] = useState(today);
 
-  const startDate = startDateForRange(range, customFrom);
+  const { startDate, endDate } = useMemo(
+    () => dateBoundsForRange(range, customFrom, customTo),
+    [range, customFrom, customTo],
+  );
 
   const terminalJobs = useMemo(
     () =>
@@ -326,9 +361,9 @@ export function UsagePage() {
         (j) =>
           TERMINAL_STATUSES.includes(j.status) &&
           j.completed_at &&
-          new Date(j.completed_at) >= startDate,
+          isDateInRange(j.completed_at, startDate, endDate),
       ),
-    [jobsQuery.data, startDate],
+    [jobsQuery.data, startDate, endDate],
   );
 
   // Unique model IDs for the filter dropdown.
@@ -343,8 +378,8 @@ export function UsagePage() {
   }, [terminalJobs]);
 
   const buckets = useMemo(
-    () => buildBuckets(terminalJobs, startDate),
-    [terminalJobs, startDate],
+    () => buildBuckets(terminalJobs, startDate, endDate),
+    [terminalJobs, startDate, endDate],
   );
 
   const totals = useMemo(() => {
@@ -387,12 +422,32 @@ export function UsagePage() {
             <input
               type="date"
               value={customFrom}
-              max={today}
-              onChange={(e) => setCustomFrom(e.target.value)}
+              max={customTo}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (!value) return;
+                setCustomFrom(value);
+                if (value && customTo && value > customTo) setCustomTo(value);
+              }}
               className={styles.usageDateInput}
             />
           </label>
-          <span className={layout.small}>to today</span>
+          <label className={layout.small}>
+            To
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              max={today}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (!value) return;
+                setCustomTo(value);
+                if (value && customFrom && value < customFrom) setCustomFrom(value);
+              }}
+              className={styles.usageDateInput}
+            />
+          </label>
         </div>
       ) : null}
 

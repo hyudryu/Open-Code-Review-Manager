@@ -84,7 +84,7 @@ await asyncio.create_subprocess_exec(
     "--format",
     "json",
     "--audience",
-    "agent",
+    "human",
 )
 ```
 
@@ -725,10 +725,10 @@ For GUI jobs, force:
 
 ```text
 format = json
-audience = agent
+audience = human
 ```
 
-These can be displayed in Advanced Settings but should not normally be changed because structured, quiet output is required by the runner.
+These can be displayed in Advanced Settings but should not normally be changed. JSON keeps the terminal result structured, while the human audience supplies the progress lines shown in the live log.
 
 ## Provider Controls
 
@@ -1439,7 +1439,11 @@ Return immediately:
 
 ### `ocr_get_job`
 
-Returns status and progress.
+Returns status and progress immediately.
+
+### `ocr_get_job_results`
+
+Waits asynchronously for terminal state, then returns the complete JSON result.
 
 ### `ocr_get_findings`
 
@@ -1490,11 +1494,13 @@ MCP submission must be asynchronous.
 The caller receives a durable job ID immediately and may:
 
 - Poll through `ocr_get_job`.
+- Wait for the complete export through `ocr_get_job_results`.
 - Read the result resource.
 - Subscribe through supported MCP task semantics.
 - Receive the optional signed webhook.
 
-Do not keep an MCP tool call open for the entire review.
+`ocr_get_job_results` may remain open while the review runs; the wait is async
+and does not block other server requests.
 
 ---
 
@@ -2708,7 +2714,7 @@ def456...
 --format
 json
 --audience
-agent
+human
 ```
 
 The preview is informational. Users may copy it, but credential values remain redacted.

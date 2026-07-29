@@ -125,7 +125,7 @@ def test_build_range_command(adapter: OCRAdapter) -> None:
     assert "--from" in argv and "a" * 40 in argv
     assert "--to" in argv and "b" * 40 in argv
     # Forced runner-owned flags.
-    assert argv[-4:] == ["--format", "json", "--audience", "agent"]
+    assert argv[-4:] == ["--format", "json", "--audience", "human"]
     # --exclude is a single comma-separated value.
     i = argv.index("--exclude")
     assert argv[i + 1] == "*.lock,dist/**"
@@ -146,7 +146,7 @@ def test_build_workspace_command(adapter: OCRAdapter) -> None:
     argv = adapter.build_review_command(_ctx(mode="workspace"), STOCK)
     for flag in ("--from", "--to", "--commit"):
         assert flag not in argv
-    assert argv[-4:] == ["--format", "json", "--audience", "agent"]
+    assert argv[-4:] == ["--format", "json", "--audience", "human"]
 
 
 def test_command_requires_mode_inputs(adapter: OCRAdapter) -> None:
@@ -192,7 +192,7 @@ def test_additional_arguments_appended_before_forced(adapter: OCRAdapter) -> Non
     )
     i = argv.index("--some-future-flag")
     assert argv[i + 1] == "v"
-    assert argv[-4:] == ["--format", "json", "--audience", "agent"]
+    assert argv[-4:] == ["--format", "json", "--audience", "human"]
 
 
 def test_resume_requires_capability(adapter: OCRAdapter) -> None:
@@ -214,7 +214,32 @@ def test_resume_requires_capability(adapter: OCRAdapter) -> None:
 def test_preview_command_inserts_preview_flag(adapter: OCRAdapter) -> None:
     argv = adapter.build_preview_command(_ctx(mode="workspace"), STOCK)
     assert "--preview" in argv
-    assert argv[-4:] == ["--format", "json", "--audience", "agent"]
+    assert argv[-4:] == ["--format", "json", "--audience", "human"]
+
+
+def test_parse_human_preview_output_from_ocr_1_8() -> None:
+    output = (
+        "\nPreview: 3 file(s) changed  |  \x1b[32m+309\x1b[0m  \x1b[31m-9\x1b[0m\n\n"
+        "\x1b[1mWill review (2):\x1b[0m\n"
+        "  \x1b[33m[M]\x1b[0m  app/agent.py         \x1b[32m+125 \x1b[0m \x1b[31m-9   \x1b[0m\n"
+        "  \x1b[32m[A]\x1b[0m  app/my captcha.py    \x1b[32m+184 \x1b[0m \x1b[31m-0   \x1b[0m\n\n"
+        "\x1b[1mExcluded from review (1):\x1b[0m\n"
+        "  \x1b[31m[D]\x1b[0m  old.js  \x1b[2m(deleted)\x1b[0m\n"
+    )
+
+    result = OCRAdapter.parse_preview_output(output)
+
+    assert result.ok
+    assert result.total_files == 3
+    assert result.reviewable_count == 2
+    assert result.excluded_count == 1
+    assert result.raw_text is not None
+    assert "\x1b[" not in result.raw_text
+    assert "Will review (2):" in result.raw_text
+    assert [item.path for item in result.files] == [
+        "app/agent.py",
+        "app/my captcha.py",
+    ]
 
 
 # --- environment + config -------------------------------------------------------

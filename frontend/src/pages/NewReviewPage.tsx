@@ -117,7 +117,10 @@ export function NewReviewPage() {
   const [expertOpen, setExpertOpen] = useState(false);
 
   const pullRequests = usePullRequests(projectId, mode === "pr");
-  const prList = useMemo(() => pullRequests.data?.prs ?? [], [pullRequests.data]);
+  const prList = useMemo(
+    () => [...(pullRequests.data?.prs ?? [])].sort((a, b) => b.number - a.number),
+    [pullRequests.data],
+  );
   const filteredPrs = useMemo(() => {
     const q = prQuery.trim().toLowerCase();
     if (!q) return prList;

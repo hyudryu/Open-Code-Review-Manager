@@ -55,16 +55,6 @@
   transition: width 300ms var(--ease);
 }
 
-.progressFillIndeterminate {
-  width: 30%;
-  animation: slide 1.6s ease-in-out infinite;
-}
-
-@keyframes slide {
-  0% { margin-left: -30%; }
-  100% { margin-left: 100%; }
-}
-
 .statRow {
   display: flex;
   gap: var(--space-6);

@@ -62,9 +62,9 @@ like `FindingCard`), `components/ui/` (custom design system), `styles/`
    gate dispatch. Invalid state transitions are rejected.
 3. **Run** — the runner creates a detached worktree (range/commit jobs) or
    takes the workspace lock (workspace jobs), writes a per-job HOME with an
-   OCR `config.json` (no secrets), spawns `ocr review --format json
-   --audience agent` as an argv array, and tails the session JSONL for
-   progress events.
+   OCR `config.json` (no secrets), previews the review inventory, spawns
+   `ocr review --format json --audience human` as an argv array, and persists
+   both OCR progress output and normalized session JSONL events.
 4. **Events** — persisted to `job_events` and fanned out on the in-process
    bus; the SSE endpoint replays persisted events from `Last-Event-ID` then
    streams live ones, closing on terminal states.
