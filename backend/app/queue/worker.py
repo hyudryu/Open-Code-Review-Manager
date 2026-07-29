@@ -4,11 +4,18 @@ One long-lived task scans for runnable queued jobs and spawns
 :meth:`JobRunner.run_job` tasks while respecting the global worker count,
 per-project limits, and per-provider limits. ``drain``/``run_once`` are
 public so tests can drive the worker deterministically.
+
+A second long-lived task (the *reaper*) periodically scans for jobs stuck
+in ``running`` or ``preparing`` whose runner task has been lost (e.g. after
+a hard server kill). It checks whether the OCR subprocess PID is still
+alive and enforces a maximum runtime, transitioning stale jobs to
+``failed`` so they don't block the queue forever.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from sqlalchemy import select
@@ -24,6 +31,25 @@ from app.queue.runner import JobRunner
 from app.queue.service import QueueService, WebhookDispatcher
 
 logger = get_logger(__name__)
+
+
+def _pid_alive(pid: int | None) -> bool:
+    """Check whether a process PID is still running (cross-platform)."""
+
+    if pid is None:
+        return False
+    import os
+    import signal
+
+    try:
+        os.kill(pid, 0)  # signal 0 = existence check, no actual signal sent
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # process exists but we can't signal it — treat as alive
+    except OSError:
+        return False
+    return True
 
 
 class QueueWorker:
@@ -50,6 +76,7 @@ class QueueWorker:
         self._wake = asyncio.Event()
         self._stop = asyncio.Event()
         self._loop_task: asyncio.Task | None = None
+        self._reaper_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # limits
@@ -100,12 +127,29 @@ class QueueWorker:
         if self._stop.is_set() or await self._is_paused():
             return 0
         global_limit, per_project, per_provider = await self._limits()
-        capacity = global_limit - self.runner.active_count
-        if capacity <= 0:
-            return 0
 
+        # Check both dispatched tasks AND the database for active jobs.
+        # self._tasks tracks asyncio tasks we spawned, but a job can be
+        # active in the DB (preparing/running) even if its task briefly
+        # left self._tasks (e.g. quick failure + retry). The DB is the
+        # source of truth for what's actually consuming capacity.
         factory = get_session_factory()
         async with factory() as session:
+            result = await session.execute(
+                select(models.ReviewJob).where(
+                    models.ReviewJob.status.in_(["preparing", "running", "cancelling"])
+                )
+            )
+            db_active = list(result.scalars())
+            db_active_ids = {j.id for j in db_active}
+            db_active_projects = {j.project_id for j in db_active}
+
+            # Capacity = global limit - max(tracked tasks, DB active jobs)
+            active_count = max(len(self._tasks), len(db_active_ids))
+            capacity = global_limit - active_count
+            if capacity <= 0:
+                return 0
+
             queue = QueueService(session, settings=self.settings)
             candidates = await queue.next_runnable(limit=50)
 
@@ -113,9 +157,12 @@ class QueueWorker:
         for job in candidates:
             if capacity <= 0:
                 break
-            if job.id in self._tasks:
+            if job.id in self._tasks or job.id in db_active_ids:
                 continue
-            if self.runner.active_for_project(job.project_id) >= per_project:
+            # Check both runner tracking and DB for per-project limits.
+            project_active = self.runner.active_for_project(job.project_id)
+            db_project_count = sum(1 for j in db_active if j.project_id == job.project_id)
+            if max(project_active, db_project_count) >= per_project:
                 continue
             provider_key = (
                 (job.configuration_snapshot_json or {}).get("provider") or {}
@@ -138,6 +185,128 @@ class QueueWorker:
             logger.exception("job_runner_unhandled_error", job_id=job_id)
         finally:
             self._wake.set()
+
+    # ------------------------------------------------------------------
+    # stale-job reaper (watchdog)
+    # ------------------------------------------------------------------
+
+    async def reap_once(self) -> int:
+        """Scan for jobs stuck in running/preparing whose runner task is gone.
+
+        Checks two conditions for each stale job:
+        1. Process PID is set but no longer alive → ``process_died``
+           (only for jobs in 'running' state, and only after a grace period
+           to avoid killing jobs whose process is just starting)
+        2. Runtime exceeded ``ocr_process_timeout_seconds`` → ``process_timeout``
+
+        Only jobs NOT in ``self._tasks`` are considered — actively-managed
+        jobs are handled by the runner's own timeout logic.
+
+        Returns the number of jobs transitioned to ``failed``.
+        """
+
+        from datetime import datetime, timezone
+
+        factory = get_session_factory()
+        reaped = 0
+        grace_period = 120.0  # 2-minute grace before checking PID liveness
+        async with factory() as session:
+            result = await session.execute(
+                select(models.ReviewJob).where(
+                    models.ReviewJob.status.in_(["running", "preparing"])
+                )
+            )
+            stale_jobs = list(result.scalars())
+
+            for job in stale_jobs:
+                # Skip jobs that still have an active runner task.
+                if job.id in self._tasks:
+                    continue
+
+                pid = job.process_id
+                started = job.started_at
+                timeout = self.settings.ocr_process_timeout_seconds
+
+                # Condition 1: running job with a dead PID.
+                # Only check 'running' jobs (not 'preparing' — those may not
+                # have a PID yet). Require a grace period since start to avoid
+                # killing jobs whose subprocess is still spinning up.
+                if (
+                    job.status == "running"
+                    and pid is not None
+                    and started
+                ):
+                    started_dt = started if isinstance(started, datetime) else datetime.fromisoformat(str(started))
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                    if elapsed > grace_period and not _pid_alive(pid):
+                        logger.warning(
+                            "reaper_process_died",
+                            job_id=job.id,
+                            pid=pid,
+                            elapsed=elapsed,
+                        )
+                        queue = QueueService(session, settings=self.settings)
+                        try:
+                            await queue.transition(
+                                job,
+                                "failed",
+                                message=f"OCR process exited unexpectedly (PID {pid} no longer exists after {elapsed:.0f}s).",
+                                error_code="process_died",
+                            )
+                            job.process_id = None
+                            reaped += 1
+                        except Exception:
+                            logger.exception("reaper_transition_failed", job_id=job.id)
+                        continue
+
+                # Condition 2: runtime exceeded the process timeout.
+                if started:
+                    started_dt = started if isinstance(started, datetime) else datetime.fromisoformat(str(started))
+                    if started_dt.tzinfo is None:
+                        started_dt = started_dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - started_dt).total_seconds()
+                    if elapsed > timeout:
+                        logger.warning(
+                            "reaper_process_timeout",
+                            job_id=job.id,
+                            elapsed=elapsed,
+                            timeout=timeout,
+                        )
+                        queue = QueueService(session, settings=self.settings)
+                        try:
+                            await queue.transition(
+                                job,
+                                "failed",
+                                message=f"OCR process exceeded the {timeout:.0f}s timeout (ran for {elapsed:.0f}s).",
+                                error_code="process_timeout",
+                            )
+                            job.process_id = None
+                            reaped += 1
+                        except Exception:
+                            logger.exception("reaper_transition_failed", job_id=job.id)
+
+            if reaped:
+                await session.commit()
+        return reaped
+
+    async def _reaper_loop(self) -> None:
+        """Periodically scan for and clean up stale running/preparing jobs."""
+
+        interval = self.settings.reaper_interval_seconds
+        while not self._stop.is_set():
+            try:
+                count = await self.reap_once()
+                if count:
+                    logger.info("reaper_cleaned_stale_jobs", count=count)
+                    self._wake.set()  # wake dispatcher — capacity may have freed up
+            except Exception:
+                logger.exception("reaper_loop_error")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=interval)
+            except TimeoutError:
+                pass
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -171,6 +340,7 @@ class QueueWorker:
             return
         self._stop.clear()
         self._loop_task = asyncio.create_task(self._loop())
+        self._reaper_task = asyncio.create_task(self._reaper_loop())
 
     async def _loop(self) -> None:
         while not self._stop.is_set():
@@ -193,6 +363,12 @@ class QueueWorker:
             except TimeoutError:
                 self._loop_task.cancel()
             self._loop_task = None
+        if self._reaper_task is not None:
+            try:
+                await asyncio.wait_for(self._reaper_task, timeout=5)
+            except TimeoutError:
+                self._reaper_task.cancel()
+            self._reaper_task = None
         for task in list(self._tasks.values()):
             task.cancel()
         if self._tasks:

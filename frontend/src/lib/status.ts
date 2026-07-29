@@ -33,6 +33,15 @@ export const MODE_LABEL: Record<string, string> = {
   scan: "Scan",
 };
 
+function cleanRef(ref: string | null): string {
+  if (!ref) return "?";
+  // Strip refs/pull/N/head → PR ref shorthand for readability.
+  const prMatch = ref.match(/^refs\/pull\/(\d+)\/head$/);
+  if (prMatch) return `PR #${prMatch[1]}`;
+  // Strip refs/heads/ prefix.
+  return ref.replace(/^refs\/heads\//, "");
+}
+
 export function jobTargetLabel(job: {
   mode: string;
   base_ref: string | null;
@@ -40,8 +49,14 @@ export function jobTargetLabel(job: {
   commit_ref: string | null;
   configuration_snapshot_json: Record<string, unknown> | null;
 }): string {
-  if (job.mode === "range" || job.mode === "pr")
-    return `${job.base_ref ?? "?"} → ${job.target_ref ?? "?"}`;
+  if (job.mode === "range") {
+    return `${cleanRef(job.target_ref)} → ${cleanRef(job.base_ref)}`;
+  }
+  if (job.mode === "pr") {
+    const target = cleanRef(job.target_ref);
+    const base = cleanRef(job.base_ref);
+    return `${target} → ${base}`;
+  }
   if (job.mode === "commit") return job.commit_ref ?? "?";
   if (job.mode === "scan") return "Full repository";
   return "Working tree";

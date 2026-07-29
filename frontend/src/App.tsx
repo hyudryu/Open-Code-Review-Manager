@@ -22,6 +22,7 @@ import { WebhooksPage } from "./pages/WebhooksPage";
 import { DeliveriesPage } from "./pages/DeliveriesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
+import { UsagePage } from "./pages/UsagePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 export function App() {
@@ -39,6 +40,7 @@ export function App() {
           <Route path="reviews/:jobId/logs" element={<JobLogsPage />} />
         <Route path="reviews" element={<ReviewHistoryPage />} />
         <Route path="queue" element={<QueuePage />} />
+        <Route path="usage" element={<UsagePage />} />
         <Route path="jobs/:jobId" element={<JobLivePage />} />
         <Route path="providers" element={<ProvidersPage />} />
         <Route path="providers/new" element={<ProviderEditorPage />} />

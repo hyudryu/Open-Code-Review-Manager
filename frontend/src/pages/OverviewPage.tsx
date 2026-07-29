@@ -5,12 +5,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCancelJob,
   useJobs,
+  useModels,
   useOcrUpdateStatus,
+  useProfiles,
   useProjects,
   useProviders,
   useQueue,
   useSystemInfo,
   useSystemOcr,
+  useUpdateProfile,
 } from "../api/hooks";
 import { useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
@@ -18,7 +21,7 @@ import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui
 import { IconFolder, IconPlus } from "../components/ui/icons";
 import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
-import { TERMINAL_STATUSES, type Job } from "../types";
+import { TERMINAL_STATUSES, type Job, type Provider, type ReviewProfile } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
@@ -48,22 +51,30 @@ function FindingsTrend({ jobs }: { jobs: Job[] }) {
   }, [jobs]);
 
   const max = Math.max(1, ...days.map((d) => d.count));
+  const total = days.reduce((s, d) => s + d.count, 0);
   return (
     <div>
       <div className={styles.trend} role="img"
-        aria-label={`Findings over the last 14 days, peak ${max}`}>
+        aria-label={`${total} findings over the last 14 days, peak ${max}`}>
         {days.map((day, i) => (
           <div
             key={i}
-            className={`${styles.trendBar} ${day.count === 0 ? styles.trendBarEmpty : ""}`}
-            style={{ height: `${Math.max(6, (day.count / max) * 100)}%` }}
+            className={styles.trendBarCol}
             title={`${day.count} findings`}
-          />
+          >
+            <div
+              className={`${styles.trendBar} ${day.count === 0 ? styles.trendBarEmpty : ""}`}
+              style={{ height: `${Math.max(6, (day.count / max) * 100)}%` }}
+            />
+            <span className={styles.trendBarCount}>
+              {day.count > 0 ? day.count : ""}
+            </span>
+          </div>
         ))}
       </div>
       <div className={styles.trendLegend}>
         <span>{days[0]?.label}</span>
-        <span>Findings · last 14 days</span>
+        <span>{total} findings · last 14 days</span>
         <span>{days[days.length - 1]?.label}</span>
       </div>
     </div>
@@ -73,7 +84,13 @@ function FindingsTrend({ jobs }: { jobs: Job[] }) {
 /** Show the branch/commit being reviewed — never "HEAD". */
 function activeReviewTarget(job: Job): string {
   if (job.mode === "range" || job.mode === "pr") {
-    return `${job.base_ref ?? "?"} → ${job.target_ref ?? "?"}`;
+    const cleanRef = (ref: string | null) => {
+      if (!ref) return "?";
+      const prMatch = ref.match(/^refs\/pull\/(\d+)\/head$/);
+      if (prMatch) return `PR #${prMatch[1]}`;
+      return ref.replace(/^refs\/heads\//, "");
+    };
+    return `${cleanRef(job.target_ref)} → ${cleanRef(job.base_ref)}`;
   }
   if (job.mode === "commit") {
     // Prefer the resolved SHA from the snapshot; fall back to commit_ref.
@@ -128,12 +145,87 @@ function LiveLogPane({ jobId }: { jobId: string }) {
   );
 }
 
+/** Provider row with model selector. Reads/writes the Default profile's model. */
+function ProviderRow({
+  provider,
+  profiles,
+}: {
+  provider: Provider;
+  profiles: ReviewProfile[];
+}) {
+  const models = useModels(provider.id);
+  const updateProfile = useUpdateProfile();
+
+  // The Default (system) profile that uses this provider.
+  const profile = profiles.find(
+    (p) => p.is_system && p.provider_profile_id === provider.id,
+  );
+  const selectedModelId = profile?.model_id ?? "";
+
+  const isConfigured =
+    provider.enabled && (provider.has_credential || provider.base_url === "");
+
+  return (
+    <div className={styles.compactRow}>
+      <div className={styles.compactRowMain}>
+        <span className={styles.compactRowTitle}>{provider.name}</span>
+        <span className={styles.compactRowMeta}>
+          {provider.protocol} · {provider.base_url || "no endpoint"}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {profile && (models.data ?? []).length > 0 ? (
+          <select
+            aria-label={`Model for ${provider.name}`}
+            value={selectedModelId}
+            disabled={updateProfile.isPending}
+            onChange={(e) => {
+              updateProfile.mutate({
+                id: profile.id,
+                name: profile.name,
+                model_id: e.target.value || null,
+              });
+            }}
+            style={{
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px solid var(--border-strong)",
+              background: "var(--bg-surface)",
+              color: "var(--text-primary)",
+              padding: "2px 6px",
+              maxWidth: 200,
+            }}
+          >
+            <option value="">Select model…</option>
+            {(models.data ?? []).map((m) => (
+              <option key={m.id} value={m.model_id}>
+                {m.display_name ?? m.model_id}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <StatusDot
+          tone={!provider.enabled ? "muted" : isConfigured ? "ok" : "warn"}
+          label={
+            !provider.enabled
+              ? "disabled"
+              : isConfigured
+                ? "configured"
+                : "no key"
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
-  const queue = useQueue({ refetchInterval: 8_000 });
+  const queue = useQueue();
   const jobs = useJobs({ limit: 50 });
   const projects = useProjects();
   const providers = useProviders();
+  const profiles = useProfiles();
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
@@ -323,10 +415,26 @@ export function OverviewPage() {
             </div>
           </section>
 
-          {/* Findings trend */}
+          {/* Findings trend — preview that links to the full Usage page */}
           <section aria-labelledby="ov-trend">
-            <h2 className={layout.sectionTitle} id="ov-trend">Findings trend</h2>
-            <div className={`${layout.section} ${layout.sectionTight}`}>
+            <div className={layout.sectionHeader}>
+              <h2 className={layout.sectionTitle} id="ov-trend" style={{ margin: 0 }}>
+                Findings trend
+              </h2>
+              <Link to="/usage" className={layout.small}>View usage →</Link>
+            </div>
+            <div
+              className={`${layout.section} ${layout.sectionTight} ${styles.clickablePreview}`}
+              onClick={() => navigate("/usage")}
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/usage");
+                }
+              }}
+            >
               {jobs.isLoading ? <Skeleton height={64} /> : <FindingsTrend jobs={jobs.data?.items ?? []} />}
             </div>
           </section>
@@ -434,24 +542,7 @@ export function OverviewPage() {
                 </p>
               ) : (
                 (providers.data ?? []).map((p) => (
-                  <div key={p.id} className={styles.compactRow}>
-                    <div className={styles.compactRowMain}>
-                      <span className={styles.compactRowTitle}>{p.name}</span>
-                      <span className={styles.compactRowMeta}>
-                        {p.protocol} · {p.base_url || "no endpoint"}
-                      </span>
-                    </div>
-                    <StatusDot
-                      tone={!p.enabled ? "muted" : p.has_credential || p.base_url === "" ? "ok" : "warn"}
-                      label={
-                        !p.enabled
-                          ? "disabled"
-                          : p.has_credential || p.protocol
-                            ? "configured"
-                            : "no key"
-                      }
-                    />
-                  </div>
+                  <ProviderRow key={p.id} provider={p} profiles={profiles.data ?? []} />
                 ))
               )}
             </div>

@@ -17,6 +17,7 @@ import {
   IconQueue,
   IconReviews,
   IconSettings,
+  IconUsage,
 } from "../components/ui/icons";
 import styles from "./layout.module.css";
 
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: <IconProjects size={19} /> },
   { to: "/queue", label: "Queue", icon: <IconQueue size={19} /> },
   { to: "/reviews", label: "Reviews", icon: <IconReviews size={19} /> },
+  { to: "/usage", label: "Usage", icon: <IconUsage size={19} /> },
   { to: "/providers", label: "Providers", icon: <IconProviders size={19} /> },
   { to: "/profiles", label: "Profiles", icon: <IconProfiles size={19} /> },
   { to: "/integrations", label: "Integrations", icon: <IconIntegrations size={19} /> },

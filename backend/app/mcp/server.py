@@ -506,32 +506,30 @@ def prompt_turn_findings_into_fix_plan(job_id: str) -> str:
 
 def build_mcp_server() -> FastMCP:
     mcp = FastMCP(
-        "ocr-control-center",
+        "code-review",
         instructions=(
-            "This server runs OpenCodeReview (OCR) — an automated code review "
-            "tool that analyzes diffs and pull requests for bugs, security "
-            "issues, performance problems, and code quality.\n\n"
-            "COMMON REQUESTS AND HOW TO HANDLE THEM:\n"
-            "• \"review the code\" / \"do a code review\" / \"review my changes\":\n"
-            "  call ocr_submit_review. If no branch is specified, use the "
-            "  current branch as target_ref (range mode, base auto-defaults to "
-            "  the project's main branch). If they say \"review this commit\", "
-            "  use commit mode with commit_ref='HEAD'. If they say \"review "
-            "  uncommitted changes\", use workspace mode.\n"
+            "This MCP server provides automated CODE REVIEW. When the user "
+            "asks to review code, find bugs, check a PR, or audit a diff, "
+            "use these tools — do NOT attempt to review the code yourself.\n\n"
+            "The server name 'code-review' means: this server reviews code.\n\n"
+            "WHEN THE USER SAYS:\n"
+            "• \"review my code\" / \"do a code review\" / \"review the code\" / "
+            "\"check my changes\" / \"review this PR\" / \"find bugs in this diff\" "
+            "/ \"audit this branch\":\n"
+            "  → call submit_review (the primary tool).\n"
             "• \"what did the review find?\" / \"show me the findings\":\n"
-            "  call ocr_get_findings with the job id.\n"
-            "• \"is the review done?\": call ocr_get_job with "
-            "wait_for_terminal=true.\n\n"
+            "  → call get_findings with the job id.\n"
+            "• \"is the review done?\" / \"check review status\":\n"
+            "  → call get_job with wait_for_terminal=true.\n\n"
             "WORKFLOW:\n"
-            "1. Find the project: call ocr_list_projects (or ocr_add_project "
-            "   if not registered).\n"
-            "2. Submit: call ocr_submit_review with the project id and the "
-            "   appropriate mode/refs.\n"
-            "3. Wait for completion: the MCP ocr_get_job tool may time out "
-            "after ~30s. For a single indefinite blocking call, use curl "
-            "via the Bash tool: "
-            "curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}?wait_for_terminal=true&timeout_seconds=0'\n"
-            "4. Read results: call ocr_get_findings.\n\n"
+            "1. Find the project: call list_projects (or add_project if not "
+            "   registered).\n"
+            "2. Submit review: call submit_review with the project id and mode.\n"
+            "3. Wait for completion: the MCP get_job tool may time out after "
+            "~30s. For a single indefinite blocking call, use curl via the "
+            "Bash tool: curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}"
+            "?wait_for_terminal=true&timeout_seconds=0'\n"
+            "4. Read results: call get_findings.\n\n"
             "MODES:\n"
             "  range (default) — compare two branches. base_ref auto-defaults "
             "  to the project's main branch; only target_ref is required.\n"
@@ -551,9 +549,9 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(
         name="ocr_list_projects",
         description=(
-            "List all registered projects (repositories available for code "
-            "review). Call this first to find the project_id before submitting "
-            "a review. Returns id, display_name, absolute_path, default_branch, "
+            "List all registered code repositories. Call this FIRST before "
+            "submitting a code review to find the project_id. "
+            "Returns id, display_name, absolute_path, default_branch, "
             "and current_branch for each."
         ),
     )(ocr_list_projects)
@@ -595,10 +593,14 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(
         name="ocr_submit_review",
         description=(
-            "Submit a code review job. This is the primary tool for reviewing "
-            "code — use it when the user asks to \"review the code\", \"do a "
-            "code review\", \"review my changes\", \"review this branch\", or "
-            "similar.\n\n"
+            "CODE REVIEW tool — reviews code for bugs, security issues, and "
+            "quality problems. Use this when the user says: \"do a code "
+            "review\", \"review my code\", \"review the code\", \"check my "
+            "changes\", \"review this branch\", \"review this PR\", \"find "
+            "bugs\", \"audit this diff\", or any similar request to review code.\n\n"
+            "Do NOT review the code yourself — this tool runs a dedicated "
+            "code review engine (OpenCodeReview) that analyzes diffs, finds "
+            "bugs, and produces structured findings.\n\n"
             "Returns a durable job_id immediately (async). After submitting, "
             "call ocr_get_job with wait_for_terminal=true to wait for "
             "completion, then ocr_get_findings to read the results.\n\n"
@@ -640,7 +642,8 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(
         name="ocr_get_job",
         description=(
-            "Get the status and progress of a review job. Pass "
+            "Check code review status. Use after submit_review when the user "
+            "asks \"is the review done?\" or \"check review status\". "
             "wait_for_terminal=true to block until the job finishes "
             "(completed, failed, cancelled) or the timeout elapses. "
             "timeout_seconds=0 means wait indefinitely.\n\n"
@@ -672,9 +675,11 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(
         name="ocr_get_findings",
         description=(
-            "Get the structured code review findings for a completed job. "
-            "Call this after ocr_get_job shows status 'completed' or "
-            "'completed_with_warnings'.\n\n"
+            "Get code review results — the bugs, issues, and findings found "
+            "by the review. Use when the user asks \"what did the review "
+            "find?\", \"show me the findings\", \"what are the results?\", or "
+            "\"show me the bugs\". Call after get_job shows status "
+            "'completed' or 'completed_with_warnings'.\n\n"
             "RESPONSE:\n"
             "  job_id   — the reviewed job\n"
             "  total    — total number of findings\n"

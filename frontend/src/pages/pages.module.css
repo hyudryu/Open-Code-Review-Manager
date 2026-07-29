@@ -95,12 +95,31 @@
   height: 48px;
 }
 
-.trendBar {
+.trendBarCol {
   flex: 1;
+  min-width: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+.trendBar {
+  width: 100%;
   min-width: 4px;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
   opacity: 0.85;
+}
+
+.trendBarCount {
+  font: var(--text-small);
+  font-size: 9px;
+  color: var(--text-tertiary);
+  line-height: 1;
+  margin-top: 2px;
+  min-height: 10px;
 }
 
 .trendBarEmpty {
@@ -562,4 +581,366 @@
 .wizardStepDone .wizardStepDot {
   border-color: var(--success);
   color: var(--success);
+}
+
+/* --- Usage page ------------------------------------------------------------------------- */
+
+.clickablePreview {
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-hover) var(--ease);
+}
+
+.clickablePreview:hover {
+  background: var(--bg-hover);
+}
+
+.usageRangeSelector {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.usageRangeBtn {
+  padding: 4px 12px;
+  font: var(--text-label);
+  font-size: 13px;
+  border: none;
+  border-right: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease),
+    color var(--dur-hover) var(--ease);
+}
+
+.usageRangeBtn:last-child {
+  border-right: none;
+}
+
+.usageRangeBtn:hover {
+  background: var(--bg-hover);
+}
+
+.usageRangeBtnActive {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.usageCustomRange {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.usageDateInput {
+  margin-left: var(--space-2);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: var(--text-body);
+  font-size: 13px;
+}
+
+.usageStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.usageStatCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.usageStatValue {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.usageStatLabel {
+  font: var(--text-small);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+
+.usageCharts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.usageChartCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.usageChartTitle {
+  font: var(--text-label);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-3) 0;
+}
+
+.usageChartArea {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.usageChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 160px;
+}
+
+.usageBarWrap {
+  flex: 1;
+  min-width: 3px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  position: relative;
+}
+
+.usageBar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  transition: opacity var(--dur-hover) var(--ease);
+}
+
+.usageBarEmpty {
+  background: var(--border-subtle);
+  opacity: 0.5;
+}
+
+.usageBarTooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  white-space: nowrap;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  box-shadow: var(--shadow-menu);
+}
+
+.usageBarTooltipDate {
+  font: var(--text-small);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.usageBarTooltipValue {
+  font: var(--text-label);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.usageChartAxis {
+  display: flex;
+  justify-content: space-between;
+  font: var(--text-small);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 800px) {
+  .usageCharts {
+    grid-template-columns: 1fr;
+  }
+  .usageStats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- Token breakdown pie chart --------------------------------------------------------- */
+
+.usagePieContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.usagePie {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: inset 0 0 0 3px var(--bg-surface);
+}
+
+.usagePieLegend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.usagePieLegendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.usagePieLegendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.usagePieLegendLabel {
+  font: var(--text-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.usagePieLegendValue {
+  font: var(--text-label);
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-left: auto;
+}
+
+.usagePieLegendPct {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+/* --- Model usage breakdown ------------------------------------------------------------- */
+
+.usageModelBars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.usageModelRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usageModelInfo {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.usageModelName {
+  font: var(--text-label);
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usageModelStats {
+  font: var(--text-small);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.usageModelBarTrack {
+  height: 8px;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.usageModelBarFill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.8;
+  transition: width var(--dur-hover) var(--ease);
+}
+
+/* Stacked segments in model breakdown bars */
+.usageModelBarSegment {
+  height: 100%;
+  opacity: 0.85;
+  transition: width var(--dur-hover) var(--ease);
+}
+
+.usageModelBarSegment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.usageModelBarSegment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.usageModelBarSegment:only-child {
+  border-radius: 4px;
+}
+
+/* Model breakdown legend */
+.usageModelLegend {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.usageModelLegendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-small);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* Chart card header with title + filter */
+.usageChartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.usageChartHeader > h3 {
+  margin: 0;
+}
+
+.usageModelSelect {
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 2px 6px;
+  max-width: 200px;
 }

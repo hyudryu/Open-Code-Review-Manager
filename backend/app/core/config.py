@@ -84,7 +84,9 @@ class Settings(BaseSettings):
     git_timeout_seconds: float = 60.0
     git_fetch_timeout_seconds: float = 300.0
     ocr_probe_timeout_seconds: float = 15.0
-    ocr_process_timeout_seconds: float = 86400.0
+    ocr_process_timeout_seconds: float = 3600.0  # 1 hour — generous for any review
+    prepare_timeout_seconds: float = 300.0  # 5 min for git worktree + secret resolution
+    reaper_interval_seconds: float = 60.0  # how often the watchdog scans for stale jobs
 
     # --- database ----------------------------------------------------------
     database_url: str | None = None

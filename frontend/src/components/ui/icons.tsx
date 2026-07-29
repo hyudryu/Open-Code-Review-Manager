@@ -263,3 +263,11 @@ export const IconRetry = (p: IconProps) =>
     <path d="M3 12a9 9 0 1 0 2.64-6.36" />
     <path d="M3 3v6h6" />
   </>);
+
+export const IconUsage = (p: IconProps) =>
+  base(p, <>
+    <path d="M5 21V10" />
+    <path d="M12 21V4" />
+    <path d="M19 21v-7" />
+    <path d="M3 21h18" />
+  </>);
