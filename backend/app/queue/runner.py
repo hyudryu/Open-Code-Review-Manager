@@ -124,12 +124,37 @@ class JobRunner:
                 await session.commit()
 
             try:
-                worktree_created, workspace_lock = await self._prepare(job_id)
+                # Enforce a preparation deadline so a hang in git worktree
+                # creation or secret resolution can't leave the job stuck in
+                # "preparing" forever.
+                worktree_created, workspace_lock = await asyncio.wait_for(
+                    self._prepare(job_id),
+                    timeout=self.settings.prepare_timeout_seconds,
+                )
+            except TimeoutError:
+                await self._fail(
+                    job_id,
+                    f"preparation exceeded {self.settings.prepare_timeout_seconds:.0f}s timeout",
+                    error_code="preparation_timeout",
+                )
+                return
             except Exception as exc:
                 await self._fail(job_id, f"preparation failed: {redact_text(str(exc))[:500]}", error_code="preparation_failed")
                 raise
 
             await self._execute(job_id, active)
+        except Exception as exc:
+            # Safety net: if any unhandled exception escapes after the job
+            # transitioned to preparing/running, ensure it reaches a terminal
+            # state rather than staying stuck forever.
+            if not isinstance(exc, (asyncio.CancelledError,)):
+                logger.exception("runner_unhandled_exception", job_id=job_id)
+                await self._fail(
+                    job_id,
+                    f"runner crashed: {redact_text(str(exc))[:500]}",
+                    error_code="runner_crashed",
+                )
+            raise
         finally:
             # Release resources no matter how the job ended.
             if workspace_lock is not None and workspace_lock.locked():

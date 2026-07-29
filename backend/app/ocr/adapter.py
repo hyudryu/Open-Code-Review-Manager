@@ -548,8 +548,11 @@ class OCRAdapter:
             llm["url"] = provider.base_url
         if provider.http_timeout_seconds:
             llm["timeout_sec"] = provider.http_timeout_seconds
-        if provider.auth_header:
-            llm["auth_header"] = provider.auth_header
+        # NOTE: auth_header is intentionally NOT written to the config file.
+        # The OCR binary does not recognize ``auth_header`` in the llm block —
+        # it expects ``api_key``. A partial llm block without api_key causes
+        # the binary to reject the config and ignore env vars entirely.
+        # The token travels via OCR_LLM_TOKEN env var instead.
         if provider.extra_body:
             llm["extra_body"] = provider.extra_body
 
@@ -565,7 +568,7 @@ class OCRAdapter:
         # Tokenless provider fallback: if we don't have a token to pass via
         # env vars, copy the user's global OCR config so the binary can find
         # provider credentials (e.g. custom_providers with api_key) that were
-        # configured via the OCR CLI itself.
+        # configured via the OCR CLI rather than this app's SecretStore.
         if not provider.token:
             global_config = Path.home() / ".opencodereview" / "config.json"
             if global_config.is_file():
@@ -584,6 +587,22 @@ class OCRAdapter:
                     if isinstance(global_llm, dict) and global_llm:
                         merged_llm = {**global_llm, **llm}
                         config["llm"] = merged_llm
+                except (OSError, json.JSONDecodeError):
+                    pass
+        else:
+            # Even with a token, the OCR binary may not recognize
+            # ``auth_header`` in the config's llm block — it needs
+            # ``api_key`` or ``custom_providers``. Always merge the global
+            # custom_providers so the binary can resolve the provider.
+            global_config = Path.home() / ".opencodereview" / "config.json"
+            if global_config.is_file():
+                try:
+                    global_data = json.loads(
+                        global_config.read_text(encoding="utf-8")
+                    )
+                    for key in ("providers", "custom_providers", "provider"):
+                        if key in global_data:
+                            config[key] = global_data[key]
                 except (OSError, json.JSONDecodeError):
                     pass
 
