@@ -65,6 +65,13 @@ export const initialLiveJobState: LiveJobState = {
   lastEventId: 0,
 };
 
+export function liveProgressTotal(
+  inventoryTotal: number | null,
+  observedFileCount: number,
+): number | null {
+  return inventoryTotal ?? (observedFileCount > 0 ? observedFileCount : null);
+}
+
 export function liveJobReducer(
   state: LiveJobState,
   action: LiveJobAction,

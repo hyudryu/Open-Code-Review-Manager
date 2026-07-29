@@ -304,7 +304,7 @@ async def test_pr_job_via_api_captures_immutable_shas(
         assert argv[argv.index("--from") + 1] == "e" * 40
         assert argv[argv.index("--to") + 1] == "f" * 40
         assert "--format" in argv and "json" in argv
-        assert "--audience" in argv and "agent" in argv
+        assert "--audience" in argv and "human" in argv
         # PR jobs run in a detached worktree, exactly like range jobs.
         assert job.worktree_path is None  # created at execution time
         assert str(job_id) in job.generated_command_json["cwd"]

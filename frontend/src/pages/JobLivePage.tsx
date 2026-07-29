@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCancelJob, useJob, useProject } from "../api/hooks";
-import { useJobEvents } from "../hooks/useJobEvents";
+import { liveProgressTotal, useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Badge,
@@ -55,7 +55,7 @@ export function JobLivePage() {
   const completedCount = files.filter(
     (f) => f.state === "completed" || f.state === "failed",
   ).length;
-  const totalFiles = live.totalFiles ?? files.length;
+  const totalFiles = liveProgressTotal(live.totalFiles, files.length);
   const liveStatus = live.status ?? job.data?.status ?? null;
 
   if (job.isLoading) {

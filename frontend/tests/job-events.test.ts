@@ -1,9 +1,16 @@
 import {
   initialLiveJobState,
+  liveProgressTotal,
   liveJobReducer,
 } from "../src/hooks/useJobEvents";
 
 describe("live job event state", () => {
+  it("keeps an unknown scope unknown until inventory or file activity arrives", () => {
+    expect(liveProgressTotal(null, 0)).toBeNull();
+    expect(liveProgressTotal(null, 3)).toBe(3);
+    expect(liveProgressTotal(8, 3)).toBe(8);
+  });
+
   it("keeps a stable inventory total while file activity advances", () => {
     const inventoried = liveJobReducer(initialLiveJobState, {
       type: "event",

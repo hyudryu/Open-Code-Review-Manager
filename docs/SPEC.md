@@ -84,7 +84,7 @@ await asyncio.create_subprocess_exec(
     "--format",
     "json",
     "--audience",
-    "agent",
+    "human",
 )
 ```
 
@@ -725,10 +725,10 @@ For GUI jobs, force:
 
 ```text
 format = json
-audience = agent
+audience = human
 ```
 
-These can be displayed in Advanced Settings but should not normally be changed because structured, quiet output is required by the runner.
+These can be displayed in Advanced Settings but should not normally be changed. JSON keeps the terminal result structured, while the human audience supplies the progress lines shown in the live log.
 
 ## Provider Controls
 
@@ -2708,7 +2708,7 @@ def456...
 --format
 json
 --audience
-agent
+human
 ```
 
 The preview is informational. Users may copy it, but credential values remain redacted.

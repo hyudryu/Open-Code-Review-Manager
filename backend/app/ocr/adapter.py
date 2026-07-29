@@ -93,6 +93,15 @@ _SUBCOMMAND_CAPABILITY_MAP: dict[str, str] = {
 
 _FLAG_RE = re.compile(r"--([a-z][a-z0-9-]+)")
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_PREVIEW_TOTAL_RE = re.compile(
+    r"^\s*Preview:\s*(\d+)\s+file\(s\)\s+changed\b", re.IGNORECASE
+)
+_PREVIEW_REVIEWABLE_RE = re.compile(
+    r"^\s*Will review\s*\((\d+)\):\s*$", re.IGNORECASE
+)
+_PREVIEW_SECTION_RE = re.compile(r"^\s*[^:]+\(\d+\):\s*$")
+_PREVIEW_FILE_RE = re.compile(r"^\s*\[[^\]]+\]\s+(.+?)\s*$")
 
 
 class UnsupportedFeatureError(RuntimeError):
@@ -322,10 +331,11 @@ class OCRAdapter:
     ) -> list[str]:
         """Build the ``ocr review`` argv array for any of the 4 modes.
 
-        ``--format json --audience agent`` are always forced (SPEC §8). When
-        ``caps`` is omitted, cached capabilities are used if available, else
-        standard upstream flags are assumed and planning-patch flags are
-        reported unsupported.
+        ``--format json --audience human`` are always forced. JSON keeps the
+        terminal result machine-readable, while the human audience preserves
+        OCR's progress lines for the live log. When ``caps`` is omitted,
+        cached capabilities are used if available, else standard upstream
+        flags are assumed and planning-patch flags are reported unsupported.
         """
 
         if caps is None:
@@ -429,7 +439,7 @@ class OCRAdapter:
         argv += ctx.additional_arguments
 
         # Forced runner-owned flags come last so they always win.
-        argv += ["--format", "json", "--audience", "agent"]
+        argv += ["--format", "json", "--audience", "human"]
         return argv
 
     def build_preview_command(
@@ -909,14 +919,73 @@ class OCRAdapter:
                 raw_text=redact_text(stdout)[-2000:],
                 message=redact_text(stderr).strip()[:500] or "preview failed",
             )
+        return self.parse_preview_output(stdout)
+
+    @staticmethod
+    def parse_preview_output(stdout: str) -> PreviewResult:
+        """Parse JSON previews and the human text emitted by OCR 1.8.
+
+        OCR 1.8 accepts ``--format json`` for preview commands but still emits
+        an ANSI-formatted file inventory. Supporting both shapes keeps the live
+        progress denominator accurate across OCR versions.
+        """
+
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
+            clean = _ANSI_ESCAPE_RE.sub("", stdout).replace("\r\n", "\n")
+            lines = clean.splitlines()
+            total_files: int | None = None
+            reviewable_count: int | None = None
+            reviewable_files: list[PreviewFile] = []
+            in_reviewable_section = False
+
+            for line in lines:
+                total_match = _PREVIEW_TOTAL_RE.match(line)
+                if total_match:
+                    total_files = int(total_match.group(1))
+                    continue
+
+                reviewable_match = _PREVIEW_REVIEWABLE_RE.match(line)
+                if reviewable_match:
+                    reviewable_count = int(reviewable_match.group(1))
+                    in_reviewable_section = True
+                    continue
+
+                if in_reviewable_section and _PREVIEW_SECTION_RE.match(line):
+                    in_reviewable_section = False
+                    continue
+                if not in_reviewable_section:
+                    continue
+
+                file_match = _PREVIEW_FILE_RE.match(line)
+                if not file_match:
+                    continue
+                # Human preview columns use two or more spaces before stats.
+                path = re.split(
+                    r"\s{2,}(?=[+-]\d)", file_match.group(1), maxsplit=1
+                )[0]
+                if path:
+                    reviewable_files.append(PreviewFile(path=path))
+
+            if reviewable_count is None:
+                return PreviewResult(
+                    ok=False,
+                    raw_text=redact_text(stdout)[-2000:],
+                    message="preview output was not recognized",
+                )
             return PreviewResult(
-                ok=False,
-                raw_text=redact_text(stdout)[-2000:],
-                message="preview output was not valid JSON",
+                ok=True,
+                files=reviewable_files,
+                total_files=total_files,
+                reviewable_count=reviewable_count,
+                excluded_count=(
+                    max(total_files - reviewable_count, 0)
+                    if total_files is not None
+                    else None
+                ),
             )
+
         files = [
             PreviewFile(
                 path=str(item.get("path", "")),
