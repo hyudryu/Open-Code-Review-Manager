@@ -57,11 +57,16 @@ class ProjectService(ServiceBase):
             return project
         # Fallback: case-insensitive match against stored paths in case of
         # historical drift in casing on case-insensitive filesystems.
+        # Filter at the SQL level to avoid loading the entire table.
         normcase_top = os.path.normcase(top_level)
-        result = await self.session.execute(select(models.Project))
-        for row in result.scalars():
-            if os.path.normcase(row.absolute_path) == normcase_top:
-                return row
+        result = await self.session.execute(
+            select(models.Project).where(
+                func.lower(models.Project.absolute_path) == normcase_top.lower()
+            )
+        )
+        project = result.scalar_one_or_none()
+        if project is not None:
+            return project
         return None
 
     async def _existing_paths(self) -> set[str]:
