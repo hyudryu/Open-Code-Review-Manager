@@ -22,6 +22,16 @@ export const FINDING_STATE_TONE: Record<FindingState, "neutral" | "success" | "w
   needs_followup: "warning",
 };
 
+const SEVERITY_TONE: Record<string, "danger" | "warning" | "yellow"> = {
+  high: "danger",
+  medium: "warning",
+  low: "yellow",
+};
+
+function severityTone(severity: string | null): "danger" | "warning" | "yellow" {
+  return SEVERITY_TONE[severity ?? ""] ?? "neutral";
+}
+
 export function FindingCard({ finding }: { finding: Finding }) {
   const update = useUpdateFinding();
   const [noteOpen, setNoteOpen] = useState(Boolean(finding.user_note));
@@ -52,7 +62,11 @@ export function FindingCard({ finding }: { finding: Finding }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <code className={layout.monoPath} style={{ fontSize: 12.5 }}>{lineRef}</code>
             {finding.category ? <Badge>{finding.category}</Badge> : null}
-            {finding.severity ? <Badge tone="warning">{finding.severity}</Badge> : null}
+            {finding.severity ? (
+              <Badge tone={severityTone(finding.severity)}>
+                {finding.severity.toUpperCase()}
+              </Badge>
+            ) : null}
             <Badge tone={FINDING_STATE_TONE[finding.user_state]}>
               {FINDING_STATE_LABEL[finding.user_state]}
             </Badge>

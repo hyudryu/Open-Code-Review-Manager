@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import styles from "./ui.module.css";
 
-export type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
+export type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger" | "yellow";
 
 const TONE_CLASS: Record<BadgeTone, string> = {
   neutral: "",
@@ -9,6 +9,7 @@ const TONE_CLASS: Record<BadgeTone, string> = {
   success: styles.badgeSuccess,
   warning: styles.badgeWarning,
   danger: styles.badgeDanger,
+  yellow: styles.badgeYellow,
 };
 
 export function Badge({

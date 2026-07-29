@@ -34,6 +34,7 @@ function makeJob(id: string, targetRef: string): Job {
     exit_code: null,
     retry_of_job_id: null,
     resume_from_session_id: null,
+    error_code: null,
     queued_at: new Date().toISOString(),
     started_at: null,
     completed_at: null,
