@@ -480,8 +480,11 @@ class OCRAdapter:
 
         if provider.base_url:
             env["OCR_LLM_URL"] = provider.base_url
+        # Always set OCR_LLM_TOKEN (empty string for tokenless providers).
+        # The OCR binary requires the env var to be present; an empty value
+        # signals "no auth" rather than "missing config".
+        env["OCR_LLM_TOKEN"] = provider.token or ""
         if provider.token:
-            env["OCR_LLM_TOKEN"] = provider.token
             redactor.register(provider.token)
         if provider.model:
             env["OCR_LLM_MODEL"] = provider.model
