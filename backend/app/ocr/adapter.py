@@ -984,6 +984,7 @@ class OCRAdapter:
                     if total_files is not None
                     else None
                 ),
+                raw_text=redact_text(clean).strip()[-64_000:] or None,
             )
 
         files = [

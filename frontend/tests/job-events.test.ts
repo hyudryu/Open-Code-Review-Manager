@@ -1,7 +1,9 @@
 import {
   initialLiveJobState,
+  liveFileProgress,
   liveProgressTotal,
   liveJobReducer,
+  unseenJobEvents,
 } from "../src/hooks/useJobEvents";
 
 describe("live job event state", () => {
@@ -41,5 +43,20 @@ describe("live job event state", () => {
     expect(failed.totalFiles).toBe(2);
     expect(failed.files.get("src/a.ts")?.state).toBe("failed");
     expect(failed.files.get("src/b.ts")?.state).toBe("pending");
+    expect(liveFileProgress(failed)).toMatchObject({
+      completed: 1,
+      total: 2,
+      percent: 50,
+    });
+  });
+
+  it("reconciles persisted events in order without replaying seen events", () => {
+    const events = [
+      { id: 12, event_type: "job.log", payload: { text: "later" }, created_at: null },
+      { id: 10, event_type: "job.inventory", payload: { total_files: 1 }, created_at: null },
+      { id: 11, event_type: "job.log", payload: { text: "seen" }, created_at: null },
+    ];
+
+    expect(unseenJobEvents(events, new Set([11])).map((event) => event.id)).toEqual([10, 12]);
   });
 });

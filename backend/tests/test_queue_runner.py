@@ -85,6 +85,16 @@ def test_current_ocr_session_records_map_to_progress_and_activity() -> None:
     assert JobRunner._session_activity(failed) == "[failed] src/a.py"
 
 
+def test_preview_output_maps_to_live_terminal_lines() -> None:
+    assert JobRunner._preview_log_lines(
+        "\nPreview: 2 file(s) changed\n\nWill review (1):\n  [M] src/a.py\n"
+    ) == [
+        "[ocr] Preview: 2 file(s) changed",
+        "[ocr] Will review (1):",
+        "[ocr] [M] src/a.py",
+    ]
+
+
 async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -> None:
     project_id, _ = project
     job_id = await _create_job(project_id, mode="commit", commit_ref="HEAD")

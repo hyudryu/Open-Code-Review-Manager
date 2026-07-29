@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCancelJob, useJob, useProject } from "../api/hooks";
-import { liveProgressTotal, useJobEvents } from "../hooks/useJobEvents";
+import { liveFileProgress, useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Badge,
@@ -28,7 +28,7 @@ function phaseLabel(phase: string): string {
 export function JobLivePage() {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
-  const job = useJob(jobId, { refetchInterval: 15_000 });
+  const job = useJob(jobId, { refetchInterval: 2_000 });
   const project = useProject(job.data?.project_id ?? "");
   const cancelJob = useCancelJob();
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -51,11 +51,8 @@ export function JobLivePage() {
     }
   }, [live.log, autoScroll]);
 
-  const files = useMemo(() => Array.from(live.files.values()), [live.files]);
-  const completedCount = files.filter(
-    (f) => f.state === "completed" || f.state === "failed",
-  ).length;
-  const totalFiles = liveProgressTotal(live.totalFiles, files.length);
+  const progress = useMemo(() => liveFileProgress(live), [live]);
+  const { files, completed: completedCount, total: totalFiles } = progress;
   const liveStatus = live.status ?? job.data?.status ?? null;
 
   if (job.isLoading) {
@@ -149,8 +146,8 @@ export function JobLivePage() {
               className={styles.progressFill}
               style={{
                 width: totalFiles
-                  ? `${Math.round((completedCount / totalFiles) * 100)}%`
-                  : "8%",
+                  ? `${progress.percent}%`
+                  : "0%",
               }}
             />
           </div>

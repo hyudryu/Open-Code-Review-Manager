@@ -233,6 +233,9 @@ def test_parse_human_preview_output_from_ocr_1_8() -> None:
     assert result.total_files == 3
     assert result.reviewable_count == 2
     assert result.excluded_count == 1
+    assert result.raw_text is not None
+    assert "\x1b[" not in result.raw_text
+    assert "Will review (2):" in result.raw_text
     assert [item.path for item in result.files] == [
         "app/agent.py",
         "app/my captcha.py",

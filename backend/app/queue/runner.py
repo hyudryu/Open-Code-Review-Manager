@@ -431,6 +431,12 @@ class JobRunner:
                         ),
                     },
                 )
+                for line in self._preview_log_lines(preview.raw_text):
+                    await self._emit(
+                        job_id,
+                        "job.log",
+                        {"stream": "stdout", "text": line},
+                    )
             elif preview.message:
                 await self._emit(
                     job_id,
@@ -561,6 +567,18 @@ class JobRunner:
             logger.exception("session_final_drain_error", job_id=job_id)
 
         await self._finalize(job_id, active, exit_code, stdout_path, stderr_path)
+
+    @staticmethod
+    def _preview_log_lines(raw_text: str | None) -> list[str]:
+        """Return non-empty, redacted OCR preview lines for the live terminal."""
+
+        if not raw_text:
+            return []
+        return [
+            f"[ocr] {redact_text(line).strip()}"
+            for line in raw_text.splitlines()
+            if line.strip()
+        ]
 
     async def _stream(self, reader, path: Path, job_id: str, stream: str) -> None:
         """Stream a process pipe to its log file and durable job events."""
