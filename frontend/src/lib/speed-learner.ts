@@ -12,8 +12,10 @@ import type { Job } from "../types";
 const STORAGE_KEY = "ocrcc.speed-learner";
 
 export interface SpeedEntry {
+  job_id?: string;
   elapsed_ms: number;
   files_reviewed: number;
+  /** Model id when available; legacy entries contain the review profile id. */
   profile_model: string | null;
   concurrency: number;
   completed_at: string;
@@ -102,22 +104,27 @@ function buildState(entries: SpeedEntry[]): SpeedLearnerState {
  * @param job - The completed job
  * @param actualElapsedMs - Actual elapsed time in ms (started_at to completed_at)
  */
-export function learn(job: Job, actualElapsedMs: number): void {
+export function learn(job: Job, actualElapsedMs: number): boolean {
   const state = loadState();
 
-  // Extract model from configuration snapshot
+  if (state.entries.some((entry) => entry.job_id === job.id)) return false;
+
+  // Prefer the immutable model captured when the job was queued.
   const config = job.configuration_snapshot_json as Record<string, unknown> | null;
-  const profileId = job.profile_id;
-  const concurrency = config?.concurrency as number | undefined;
+  const model = config?.model as Record<string, unknown> | null | undefined;
+  const settings = config?.settings as Record<string, unknown> | null | undefined;
+  const modelKey = typeof model?.model_id === "string" ? model.model_id : job.profile_id;
+  const concurrency = settings?.concurrency as number | undefined;
 
   // Extract files reviewed from result summary
   const summary = job.result_summary_json as Record<string, unknown> | null;
   const filesReviewed = (summary?.files_reviewed as number) ?? 1;
 
   const entry: SpeedEntry = {
+    job_id: job.id,
     elapsed_ms: Math.max(0, actualElapsedMs),
     files_reviewed: Math.max(1, filesReviewed),
-    profile_model: profileId ?? null,
+    profile_model: modelKey ?? null,
     concurrency: typeof concurrency === "number" ? concurrency : 1,
     completed_at: job.completed_at ?? new Date().toISOString(),
   };
@@ -129,6 +136,7 @@ export function learn(job: Job, actualElapsedMs: number): void {
   }
 
   saveState(state);
+  return true;
 }
 
 /**
@@ -159,8 +167,7 @@ export function estimateQueueETA(
   const avgPerFile = bucket ? bucket.avg_elapsed_per_file : state.globalAvgPerFile;
 
   // Apply multiplier correction
-  const multiplier = bucket ? bucket.multiplier : 1;
-  const adjustedPerFile = avgPerFile * multiplier * state.multiplier;
+  const adjustedPerFile = avgPerFile * state.multiplier;
 
   // Calculate time per job (files * time per file)
   const timePerJob = estimatedFiles * adjustedPerFile;
@@ -190,6 +197,31 @@ export function estimateQueueETA(
     eta: formatMillis(etaMs),
     perJob: formatMillis(perJobMs),
   };
+}
+
+/** Estimate the remaining runtime of one active job from completed file count. */
+export function estimateActiveJobETA(
+  job: Job,
+  completedFiles: number,
+  totalFiles: number | null,
+): string | null {
+  if (totalFiles === null) return null;
+  const remainingFiles = Math.max(0, totalFiles - completedFiles);
+  if (remainingFiles === 0) return "under 1 s";
+
+  const state = loadState();
+  if (state.globalAvgPerFile <= 0) return null;
+
+  const config = job.configuration_snapshot_json as Record<string, unknown> | null;
+  const model = config?.model as Record<string, unknown> | null | undefined;
+  const settings = config?.settings as Record<string, unknown> | null | undefined;
+  const modelKey = typeof model?.model_id === "string" ? model.model_id : job.profile_id;
+  const concurrency = typeof settings?.concurrency === "number" ? settings.concurrency : 1;
+  const bucket = state.buckets.find(
+    (candidate) => candidate.key === `${modelKey ?? "none"}|${concurrency}`,
+  );
+  const averagePerFile = bucket?.avg_elapsed_per_file ?? state.globalAvgPerFile;
+  return formatMillis(remainingFiles * averagePerFile * state.multiplier);
 }
 
 /**

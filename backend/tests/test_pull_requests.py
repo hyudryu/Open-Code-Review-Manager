@@ -87,8 +87,8 @@ def test_parse_ls_remote_output() -> None:
         + "not-a-sha\trefs/pull/5/head\n"
     )
     prs = parse_ls_remote_output(output)
-    assert [pr.number for pr in prs] == [3, 12]  # sorted, merge ref skipped
-    assert prs[0].head_sha == "b" * 40
+    assert [pr.number for pr in prs] == [12, 3]  # newest first, merge ref skipped
+    assert prs[0].head_sha == "a" * 40
     assert prs[0].base_ref is None
     assert prs[0].base_sha is None
     assert prs[0].source == "git"
@@ -161,6 +161,8 @@ async def test_list_prs_via_api(github_project) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/repos/octo/hello/pulls"
         assert request.url.params["state"] == "open"
+        assert request.url.params["sort"] == "created"
+        assert request.url.params["direction"] == "desc"
         assert request.headers["user-agent"] == "ocr-control-center"
         return httpx.Response(200, json=PR_PAYLOAD)
 
@@ -182,6 +184,23 @@ async def test_list_prs_via_api(github_project) -> None:
     assert pr.author == "octocat"
     assert pr.updated_at is not None
     assert pr.source == "api"
+
+
+async def test_list_prs_via_api_returns_newest_number_first(github_project) -> None:
+    project_id, _ = github_project
+    payload = [
+        {**PR_PAYLOAD[0], "number": 7},
+        {**PR_PAYLOAD[0], "number": 12},
+        {**PR_PAYLOAD[0], "number": 3},
+    ]
+
+    transport = _mock_transport(lambda request: httpx.Response(200, json=payload))
+    async with session_scope() as session:
+        listing = await PrService(
+            session, http_transport=transport
+        ).list_open_prs(project_id)
+
+    assert [pr.number for pr in listing.prs] == [12, 7, 3]
 
 
 async def test_list_prs_api_token_never_required_but_used_when_set(

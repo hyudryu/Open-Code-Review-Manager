@@ -28,6 +28,11 @@ export const MCP_TOOLS: McpToolDoc[] = [
     args: "query?, include_unavailable?",
   },
   {
+    name: "ocr_add_project",
+    description: "Register a repository by absolute path (idempotent).",
+    args: "absolute_path, display_name?",
+  },
+  {
     name: "ocr_list_branches",
     description: "List cached branches for a project, optionally refreshing or fetching first.",
     args: "project_id, refresh?, fetch?",
@@ -48,9 +53,13 @@ export const MCP_TOOLS: McpToolDoc[] = [
   },
   {
     name: "ocr_get_job",
-    description:
-      "Get job status and progress. wait_for_terminal=true blocks server-side until the job reaches a terminal state or the timeout (adds terminal / wait_expired flags).",
-    args: "job_id, wait_for_terminal?, timeout_seconds?",
+    description: "Get the current job status and progress immediately.",
+    args: "job_id",
+  },
+  {
+    name: "ocr_get_job_results",
+    description: "Block until the job is terminal, then return the complete JSON result export.",
+    args: "job_id, timeout_seconds?",
   },
   {
     name: "ocr_get_findings",

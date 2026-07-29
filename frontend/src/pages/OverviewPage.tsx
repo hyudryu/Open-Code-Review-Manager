@@ -20,6 +20,7 @@ import {
   type LiveJobState,
   useJobEvents,
 } from "../hooks/useJobEvents";
+import { useSpeedLearner } from "../hooks/use-speed-learner";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui";
 import { IconFolder, IconPlus } from "../components/ui/icons";
@@ -158,14 +159,17 @@ function LiveLogPane({ live }: { live: LiveJobState }) {
 }
 
 function ActiveReviewActivity({
-  jobId,
+  job,
   isExpanded,
+  estimateRemaining,
 }: {
-  jobId: string;
+  job: Job;
   isExpanded: boolean;
+  estimateRemaining: (job: Job, completedFiles: number, totalFiles: number | null) => string | null;
 }) {
-  const live = useJobEvents(jobId, true);
+  const live = useJobEvents(job.id, true);
   const progress = useMemo(() => liveFileProgress(live), [live]);
+  const estimatedRemaining = estimateRemaining(job, progress.completed, progress.total);
   const phase = live.phase
     ? live.phase.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
     : null;
@@ -190,6 +194,13 @@ function ActiveReviewActivity({
       </div>
       <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
         {progressLabel}
+      </p>
+      <p
+        className={layout.small}
+        style={{ marginTop: 2, color: "var(--text-tertiary)" }}
+        title="Estimated from completed reviews using the same model and concurrency when available."
+      >
+        {estimatedRemaining ? `Estimated time remaining: ~${estimatedRemaining}` : "Estimating time remaining…"}
       </p>
       {isExpanded ? (
         <LiveLogPane live={live} />
@@ -287,6 +298,7 @@ export function OverviewPage() {
   const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
   const cancelJob = useCancelJob();
+  const speedLearner = useSpeedLearner();
 
   const activeJobs = useMemo(
     () =>
@@ -414,7 +426,11 @@ export function OverviewPage() {
                       </div>
                     </div>
                     <p className={layout.small}>{activeReviewTarget(job)}</p>
-                    <ActiveReviewActivity jobId={job.id} isExpanded={isExpanded} />
+                    <ActiveReviewActivity
+                      job={job}
+                      isExpanded={isExpanded}
+                      estimateRemaining={speedLearner.estimateActive}
+                    />
                   </div>
                 );
               })

@@ -163,7 +163,12 @@ class PrService(ServiceBase):
         try:
             response = await client.get(
                 f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
-                params={"state": "open", "per_page": "50"},
+                params={
+                    "state": "open",
+                    "sort": "created",
+                    "direction": "desc",
+                    "per_page": "50",
+                },
                 headers=headers,
             )
         finally:
@@ -177,7 +182,9 @@ class PrService(ServiceBase):
             raise GitHubApiError(response.status_code) from exc
         if not isinstance(payload, list):
             raise GitHubApiError(response.status_code)
-        return [self._map_api_pr(item) for item in payload if isinstance(item, dict)]
+        prs = [self._map_api_pr(item) for item in payload if isinstance(item, dict)]
+        prs.sort(key=lambda pr: pr.number, reverse=True)
+        return prs
 
     @staticmethod
     def _map_api_pr(item: dict) -> PullRequestEntry:
@@ -263,7 +270,7 @@ def parse_ls_remote_output(output: str) -> list[PullRequestEntry]:
                     source="git",
                 )
             )
-    prs.sort(key=lambda pr: pr.number)
+    prs.sort(key=lambda pr: pr.number, reverse=True)
     return prs
 
 

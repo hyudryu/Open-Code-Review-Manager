@@ -21,7 +21,8 @@ rather than reviewing the code itself.
 | `ocr_list_profiles` | List review profiles | — |
 | `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs, `pr_number?` |
 | `ocr_submit_review` | **CODE REVIEW tool** — reviews code for bugs, security issues, and quality problems. Use when the user asks to review code, check changes, or audit a diff. | `project_id`, `mode` (`range`/`commit`/`workspace`/`pr`), `base_ref`/`target_ref`/`commit_ref`, `pr_number?`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
-| `ocr_get_job` | Check code review status. `wait_for_terminal=true` blocks server-side until the job finishes. | `job_id`, `wait_for_terminal?`, `timeout_seconds?` |
+| `ocr_get_job` | Return the current code review status immediately. | `job_id` |
+| `ocr_get_job_results` | Block until terminal, then return the complete JSON result export. | `job_id`, `timeout_seconds?` |
 | `ocr_get_findings` | Get code review results — the bugs, issues, and findings found by the review. | `job_id`, `user_state?`, `limit?` |
 | `ocr_cancel_job` | Cancel a running or queued review job | `job_id` |
 | `ocr_retry_job` | Create a retry of a failed/cancelled job | `job_id` |
@@ -30,21 +31,11 @@ rather than reviewing the code itself.
 ### Asynchronous semantics
 
 `ocr_submit_review` does not block on the review. It persists the job and
-returns its id; the queue worker picks it up. To wait for completion, call
-`ocr_get_job` with `wait_for_terminal=true` — the call **blocks server-side**
-(purely async; other requests are unaffected) until the job reaches a
-terminal status (`completed`, `completed_with_warnings`, `failed`,
-`cancelled`, `interrupted`) or `timeout_seconds` elapses (default 300,
-`0` = indefinite). When waiting was requested the payload includes two extra
-flags: `terminal` and `wait_expired`. If `wait_expired` is true the job is
-still in flight — call again to keep waiting.
-
-> **Tip:** The MCP client may time out after ~30s. For a single indefinite
-> blocking call, use curl via the Bash tool:
-> `curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}?wait_for_terminal=true&timeout_seconds=0'`
-
-Alternatively, read `ocr://jobs/{job_id}` and poll, then fetch findings via
-`ocr_get_findings` or `ocr://jobs/{job_id}/result`.
+returns its id; the queue worker picks it up. `ocr_get_job` is always a quick,
+non-blocking status read. `ocr_get_job_results` blocks asynchronously until the
+job reaches a terminal status and then returns the complete JSON export. Its
+default `timeout_seconds=0` waits indefinitely; a positive timeout returns
+`wait_expired=true` without a partial `result` object.
 
 ### Registering a project on demand
 
@@ -82,17 +73,9 @@ job = await session.call_tool("ocr_submit_review", {
 })
 job_id = json.loads(job.content[0].text)["job_id"]
 
-# One call waits up to 5 minutes for completion — no polling loop.
-while True:
-    result = await session.call_tool("ocr_get_job", {
-        "job_id": job_id, "wait_for_terminal": True, "timeout_seconds": 300,
-    })
-    payload = json.loads(result.content[0].text)
-    if payload["terminal"]:
-        break  # payload["status"] is completed / failed / cancelled / …
-    # wait_expired=True: still running; loop to wait again.
-
-findings = await session.call_tool("ocr_get_findings", {"job_id": job_id})
+# One call waits indefinitely and returns summary, findings, and warnings.
+result = await session.call_tool("ocr_get_job_results", {"job_id": job_id})
+payload = json.loads(result.content[0].text)
 ```
 
 ### Pull request reviews
@@ -167,8 +150,7 @@ async with streamablehttp_client("http://127.0.0.1:8372/mcp") as (read, write, _
         job = await session.call_tool("ocr_submit_review", {
             "project_id": "…", "mode": "commit", "commit_ref": "HEAD",
         })
-        # wait via ocr_get_job wait_for_terminal=true until terminal, then:
-        findings = await session.read_resource(f"ocr://jobs/{job_id}/result")
+        results = await session.call_tool("ocr_get_job_results", {"job_id": job_id})
 ```
 
 No authentication is required beyond the localhost binding; the MCP endpoint

@@ -269,8 +269,9 @@ export function DocsPage() {
           <P>
             The <Link to="/mcp">MCP tab</Link> shows live server status, every tool,
             resource, and prompt, and a copy-ready client configuration. Submission is
-            asynchronous: <Code>ocr_submit_review</Code> returns a durable job id; poll{" "}
-            <Code>ocr_get_job</Code> or read <Code>ocr://jobs/{"{id}"}/result</Code>.
+            asynchronous: <Code>ocr_submit_review</Code> returns a durable job id; use{" "}
+            <Code>ocr_get_job</Code> for status or <Code>ocr_get_job_results</Code> to
+            wait for the complete export.
           </P>
         </Section>
 

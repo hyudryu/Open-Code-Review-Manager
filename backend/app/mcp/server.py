@@ -2,8 +2,8 @@
 
 Every tool is a thin wrapper over ``app.services`` — zero duplicated
 business logic (SPEC §38 rules 9-10). Submission is asynchronous: callers
-get a durable job id immediately and poll ``ocr_get_job`` or read the
-``ocr://jobs/{id}/result`` resource.
+get a durable job id immediately, check ``ocr_get_job`` for quick status, or
+wait for the complete export through ``ocr_get_job_results``.
 """
 
 from __future__ import annotations
@@ -264,21 +264,8 @@ def _job_payload(job: models.ReviewJob) -> dict[str, Any]:
     }
 
 
-async def ocr_get_job(
-    job_id: str,
-    wait_for_terminal: bool = False,
-    timeout_seconds: int = 300,
-) -> dict[str, Any]:
-    """Get job status and progress.
-
-    With ``wait_for_terminal=True`` the call blocks server-side (async; it
-    does NOT block the server) until the job reaches a terminal status
-    (completed, completed_with_warnings, failed, cancelled, interrupted) or
-    ``timeout_seconds`` elapses. Pass ``timeout_seconds=0`` for an indefinite
-    wait (blocks until terminal). The response then includes ``terminal`` and
-    ``wait_expired`` flags: when ``wait_expired`` is true the job is still
-    running and you may call again to keep waiting.
-    """
+async def ocr_get_job(job_id: str) -> dict[str, Any]:
+    """Return the current job status immediately without waiting."""
 
     factory = get_session_factory()
     async with factory() as session:
@@ -289,23 +276,45 @@ async def ocr_get_job(
             return _error_payload(exc)
         payload = _job_payload(job)
 
-    if not wait_for_terminal:
+    return payload
+
+
+async def ocr_get_job_results(
+    job_id: str,
+    timeout_seconds: int = 0,
+) -> dict[str, Any]:
+    """Wait for terminal state, then return the complete JSON result export.
+
+    ``timeout_seconds=0`` waits indefinitely. A positive timeout returns the
+    current status with ``wait_expired=true`` and never includes a partial
+    ``result`` object.
+    """
+
+    payload = await ocr_get_job(job_id)
+    if "error" in payload:
         return payload
 
-    if payload["status"] in TERMINAL_STATUSES:
-        terminal = True
-    else:
-        # Session is closed by now — nothing is held while waiting.
+    terminal = payload["status"] in TERMINAL_STATUSES
+    if not terminal:
         terminal = await wait_for_job_terminal(job_id, timeout_seconds)
-        async with factory() as session:
-            service = JobService(session)
-            try:
-                job = await service.get(job_id)
-            except ServiceError as exc:
-                return _error_payload(exc)
-            payload = _job_payload(job)
+        payload = await ocr_get_job(job_id)
+        if "error" in payload:
+            return payload
+        terminal = terminal or payload["status"] in TERMINAL_STATUSES
+
     payload["terminal"] = terminal
     payload["wait_expired"] = not terminal
+    if not terminal:
+        return payload
+
+    factory = get_session_factory()
+    async with factory() as session:
+        service = JobService(session)
+        try:
+            content, _media, _filename = await service.export(job_id, "json")
+        except ServiceError as exc:
+            return _error_payload(exc)
+    payload["result"] = json.loads(content)
     return payload
 
 
@@ -461,8 +470,8 @@ def prompt_review_branch(project: str, base: str = "main", target: str = "") -> 
     return (
         f"Review the changes on branch '{target or '<target>'}' of project "
         f"'{project}' relative to '{base}'. Use ocr_preview_review to see the "
-        f"files, then ocr_submit_review with mode 'range', and call ocr_get_job "
-        f"with wait_for_terminal=true until the review completes. Summarize the "
+        f"files, then ocr_submit_review with mode 'range', and call "
+        f"ocr_get_job_results until the review completes. Summarize the "
         f"findings."
     )
 
@@ -470,8 +479,8 @@ def prompt_review_branch(project: str, base: str = "main", target: str = "") -> 
 def prompt_review_commit(project: str, commit: str) -> str:
     return (
         f"Review commit '{commit}' of project '{project}'. Use "
-        f"ocr_submit_review with mode 'commit', call ocr_get_job with "
-        f"wait_for_terminal=true until complete, then report the findings via "
+        f"ocr_submit_review with mode 'commit', call ocr_get_job_results "
+        f"until complete, then report the findings via "
         f"ocr_get_findings."
     )
 
@@ -480,7 +489,7 @@ def prompt_review_workspace(project: str) -> str:
     return (
         f"Review the current uncommitted workspace changes of project "
         f"'{project}'. Submit with ocr_submit_review mode 'workspace', call "
-        f"ocr_get_job with wait_for_terminal=true, then summarize findings."
+        f"ocr_get_job_results, then summarize findings."
     )
 
 
@@ -520,16 +529,15 @@ def build_mcp_server() -> FastMCP:
             "• \"what did the review find?\" / \"show me the findings\":\n"
             "  → call get_findings with the job id.\n"
             "• \"is the review done?\" / \"check review status\":\n"
-            "  → call get_job with wait_for_terminal=true.\n\n"
+            "  → call get_job for an immediate status response.\n"
+            "• \"wait for the review\" / \"get the review results\":\n"
+            "  → call get_job_results.\n\n"
             "WORKFLOW:\n"
             "1. Find the project: call list_projects (or add_project if not "
             "   registered).\n"
             "2. Submit review: call submit_review with the project id and mode.\n"
-            "3. Wait for completion: the MCP get_job tool may time out after "
-            "~30s. For a single indefinite blocking call, use curl via the "
-            "Bash tool: curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}"
-            "?wait_for_terminal=true&timeout_seconds=0'\n"
-            "4. Read results: call get_findings.\n\n"
+            "3. Wait and read the complete result: call get_job_results.\n"
+            "4. For a lightweight status check instead, call get_job.\n\n"
             "MODES:\n"
             "  range (default) — compare two branches. base_ref auto-defaults "
             "  to the project's main branch; only target_ref is required.\n"
@@ -602,8 +610,8 @@ def build_mcp_server() -> FastMCP:
             "code review engine (OpenCodeReview) that analyzes diffs, finds "
             "bugs, and produces structured findings.\n\n"
             "Returns a durable job_id immediately (async). After submitting, "
-            "call ocr_get_job with wait_for_terminal=true to wait for "
-            "completion, then ocr_get_findings to read the results.\n\n"
+            "call ocr_get_job for a quick status check or "
+            "ocr_get_job_results to wait for the complete result.\n\n"
             "PARAMETERS:\n"
             "  project_id  — required. Get it from ocr_list_projects.\n"
             "  mode        — optional, defaults to 'range'.\n"
@@ -642,24 +650,13 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(
         name="ocr_get_job",
         description=(
-            "Check code review status. Use after submit_review when the user "
-            "asks \"is the review done?\" or \"check review status\". "
-            "wait_for_terminal=true to block until the job finishes "
-            "(completed, failed, cancelled) or the timeout elapses. "
-            "timeout_seconds=0 means wait indefinitely.\n\n"
-            "TIP: The MCP client may time out after ~30s. For a single "
-            "blocking call that waits as long as needed, use curl via the "
-            "Bash tool instead:\n"
-            "  curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}?wait_for_terminal=true&timeout_seconds=0'\n"
-            "This blocks until the job completes and returns the full job "
-            "JSON including result_summary_json.\n\n"
+            "Return the current code review status immediately. Use for "
+            "lightweight polling and progress checks; this tool never waits.\n\n"
             "RESPONSE FIELDS:\n"
             "  status          — queued|preparing|running|completed|completed_with_warnings|failed|cancelled|interrupted\n"
             "  status_message  — human-readable detail or error (null when ok)\n"
             "  error_code      — machine-readable failure code (e.g. 'ocr_exit',\n"
             "                    'preparation_failed'); null on success\n"
-            "  terminal        — true if the job reached a final state\n"
-            "  wait_expired    — true if the wait timed out (call again to keep waiting)\n"
             "  summary         — stats object (only when completed): {\n"
             "                      files_reviewed, comments, input_tokens,\n"
             "                      output_tokens, cache_read_tokens,\n"
@@ -667,11 +664,20 @@ def build_mcp_server() -> FastMCP:
             "                    }\n"
             "  resolved_shas   — {base_sha, target_sha, commit_sha} resolved at queue time\n"
             "  warnings        — list of warning objects\n"
-            "  ocr_session_id  — OCR session id (for log inspection)\n\n"
-            "When wait_expired is true, the job is still running — call again "
-            "with wait_for_terminal=true to continue waiting."
+            "  ocr_session_id  — OCR session id (for log inspection)"
         ),
     )(ocr_get_job)
+    mcp.tool(
+        name="ocr_get_job_results",
+        description=(
+            "Wait until a code review reaches a terminal state, then return "
+            "the complete JSON export, including summary, findings, warnings, "
+            "resolved refs, and configuration snapshot. This is the blocking "
+            "counterpart to the quick ocr_get_job status call. "
+            "timeout_seconds=0 (default) waits indefinitely. With a positive "
+            "timeout, wait_expired=true means no partial result was returned."
+        ),
+    )(ocr_get_job_results)
     mcp.tool(
         name="ocr_get_findings",
         description=(

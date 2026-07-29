@@ -39,15 +39,14 @@ async def test_wait_returns_promptly_when_already_terminal(
 
     loop = asyncio.get_running_loop()
     start = loop.time()
-    payload = await mcp_server.ocr_get_job(
-        job_id, wait_for_terminal=True, timeout_seconds=30
-    )
+    payload = await mcp_server.ocr_get_job_results(job_id, timeout_seconds=30)
     elapsed = loop.time() - start
 
     assert elapsed < 5  # no actual waiting happened
     assert payload["status"] == "completed"
     assert payload["terminal"] is True
     assert payload["wait_expired"] is False
+    assert payload["result"]["job"]["id"] == job_id
 
 
 async def test_wait_blocks_until_job_completes(
@@ -59,9 +58,7 @@ async def test_wait_blocks_until_job_completes(
     worker = make_worker()
     drain_task = asyncio.create_task(worker.drain())
 
-    payload = await mcp_server.ocr_get_job(
-        job_id, wait_for_terminal=True, timeout_seconds=60
-    )
+    payload = await mcp_server.ocr_get_job_results(job_id, timeout_seconds=60)
     await drain_task
 
     assert payload["status"] == "completed"
@@ -69,6 +66,7 @@ async def test_wait_blocks_until_job_completes(
     assert payload["wait_expired"] is False
     assert payload["summary"]["files_reviewed"] == 1
     assert payload["completed_at"] is not None
+    assert payload["result"]["findings"]
 
 
 async def test_wait_timeout_returns_current_status(project, fake_ocr) -> None:
@@ -78,22 +76,21 @@ async def test_wait_timeout_returns_current_status(project, fake_ocr) -> None:
 
     loop = asyncio.get_running_loop()
     start = loop.time()
-    payload = await mcp_server.ocr_get_job(
-        job_id, wait_for_terminal=True, timeout_seconds=1
-    )
+    payload = await mcp_server.ocr_get_job_results(job_id, timeout_seconds=1)
     elapsed = loop.time() - start
 
     assert elapsed >= 1
     assert payload["status"] == "queued"
     assert payload["terminal"] is False
     assert payload["wait_expired"] is True
+    assert "result" not in payload
 
 
 async def test_wait_missing_job_returns_error_immediately(project, fake_ocr) -> None:
     loop = asyncio.get_running_loop()
     start = loop.time()
-    payload = await mcp_server.ocr_get_job(
-        "missing-id", wait_for_terminal=True, timeout_seconds=60
+    payload = await mcp_server.ocr_get_job_results(
+        "missing-id", timeout_seconds=60
     )
     assert loop.time() - start < 5
     assert payload["error"]["code"] == "not_found"

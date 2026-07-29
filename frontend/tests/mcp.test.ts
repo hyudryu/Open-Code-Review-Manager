@@ -34,8 +34,8 @@ describe("formatProviderTestSuccess", () => {
 });
 
 describe("MCP surface metadata", () => {
-  it("matches the backend server surface (10 tools, 7 resources, 5 prompts)", () => {
-    expect(MCP_TOOLS).toHaveLength(10);
+  it("matches the backend server surface (12 tools, 7 resources, 5 prompts)", () => {
+    expect(MCP_TOOLS).toHaveLength(12);
     expect(MCP_RESOURCES).toHaveLength(7);
     expect(MCP_PROMPTS).toHaveLength(5);
   });
