@@ -18,6 +18,66 @@ logger = get_logger(__name__)
 IS_WINDOWS = sys.platform.startswith("win")
 
 
+def pid_alive(pid: int | None) -> bool:
+    """Return whether *pid* still identifies a running process."""
+
+    if pid is None or pid <= 0:
+        return False
+    if IS_WINDOWS:
+        return _windows_pid_alive(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _windows_pid_alive(pid: int, *, kernel32=None) -> bool:
+    """Check liveness with Win32 handles instead of unsupported signal 0."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    injected = kernel32 is not None
+    if kernel32 is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    open_process = kernel32.OpenProcess
+    wait_for_single_object = kernel32.WaitForSingleObject
+    close_handle = kernel32.CloseHandle
+    if not injected:
+        open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        open_process.restype = wintypes.HANDLE
+        wait_for_single_object.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        wait_for_single_object.restype = wintypes.DWORD
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+
+    synchronize = 0x00100000
+    handle = open_process(synchronize, False, pid)
+    if not handle:
+        error = kernel32.last_error if injected else ctypes.get_last_error()
+        if error in {87, 1168}:  # invalid parameter / not found
+            return False
+        # Access denied (and unknown inspection failures) must not let the
+        # reaper silently kill a potentially healthy review.
+        return True
+
+    try:
+        status = wait_for_single_object(handle, 0)
+        if status == 0x00000102:  # WAIT_TIMEOUT: process has not exited
+            return True
+        if status == 0x00000000:  # WAIT_OBJECT_0: process is signalled/exited
+            return False
+        return True  # WAIT_FAILED or unexpected inspection result
+    finally:
+        close_handle(handle)
+
+
 async def terminate_process_tree(
     proc: asyncio.subprocess.Process, *, grace_seconds: float
 ) -> None:

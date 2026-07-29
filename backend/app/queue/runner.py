@@ -30,7 +30,7 @@ from app.ocr.adapter import OCRAdapter, UnsupportedFeatureError
 from app.ocr.models import SessionEvent
 from app.queue.bus import get_event_bus
 from app.queue.processes import terminate_process_tree
-from app.queue.service import QueueService, WebhookDispatcher
+from app.queue.service import QueueService, TERMINAL_STATUSES, WebhookDispatcher
 from app.services.providers import ProviderService
 
 logger = get_logger(__name__)
@@ -501,7 +501,7 @@ class JobRunner:
         await self._finalize(job_id, active, exit_code, stdout_path, stderr_path)
 
     async def _stream(self, reader, path: Path, job_id: str, stream: str) -> None:
-        """Stream a process pipe to its log file; publish (not persist) logs."""
+        """Stream a process pipe to its log file and durable job events."""
 
         if reader is None:
             return
@@ -515,14 +515,22 @@ class JobRunner:
                 fh.flush()
                 text = chunk.decode("utf-8", errors="replace").strip()
                 if text:
-                    get_event_bus().publish(
-                        job_id,
-                        {
-                            "id": None,
-                            "type": "job.log",
-                            "payload": {"stream": stream, "text": redact_text(text)[-2000:]},
-                        },
-                    )
+                    payload = {
+                        "stream": stream,
+                        "text": redact_text(text)[-2000:],
+                    }
+                    try:
+                        await self._emit(job_id, "job.log", payload)
+                    except Exception:
+                        # Never stop draining a child pipe because SQLite was
+                        # briefly unavailable; a full pipe can deadlock OCR.
+                        logger.exception(
+                            "job_log_persist_failed", job_id=job_id, stream=stream
+                        )
+                        get_event_bus().publish(
+                            job_id,
+                            {"id": None, "type": "job.log", "payload": payload},
+                        )
 
     # ------------------------------------------------------------------
     # session tailing (SPEC §14)
@@ -638,6 +646,30 @@ class JobRunner:
                         )
                     await session.commit()
             await self._write_metadata(job_id, exit_code)
+            return
+
+        # Another backend/reaper may have terminalized the row while this
+        # runner still owned the process. Finalization must not attempt an
+        # invalid terminal -> terminal transition or discard the first result.
+        async with factory() as session:
+            terminal_job = await session.get(models.ReviewJob, job_id)
+            if terminal_job is None:
+                return
+            terminal_status = (
+                terminal_job.status if terminal_job.status in TERMINAL_STATUSES else None
+            )
+            if terminal_status is not None:
+                if terminal_job.exit_code is None:
+                    terminal_job.exit_code = exit_code
+                await session.commit()
+        if terminal_status is not None:
+            logger.info(
+                "job_finalize_skipped_terminal",
+                job_id=job_id,
+                status=terminal_status,
+            )
+            await self._write_metadata(job_id, exit_code)
+            await self._apply_retention()
             return
 
         # result.json: written by the binary or recovered from stdout JSON.

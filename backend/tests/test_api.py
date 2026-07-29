@@ -356,6 +356,8 @@ async def test_full_happy_path(client, repo, tmp_path) -> None:
     job = response.json()
     assert job["status"] == "completed", job.get("status_message")
     assert job["result_summary_json"]["files_reviewed"] == 1
+    for timestamp in ("queued_at", "started_at", "completed_at"):
+        assert job[timestamp].endswith("Z")
 
     # 6. Findings.
     response = await client.get(f"/api/v1/jobs/{job_id}/findings")
@@ -441,7 +443,12 @@ async def test_sse_resume_by_last_event_id(client, repo) -> None:
     response = await client.get(f"/api/v1/jobs/{job_id}/events/history")
     history = response.json()
     assert len(history) >= 2
-    second = history[1]
+    log_index = next(
+        index for index, event in enumerate(history) if event["event_type"] == "job.log"
+    )
+    assert log_index > 0
+    assert isinstance(history[log_index]["id"], int)
+    second = history[log_index - 1]
 
     # Resume from the second event: replay must start strictly after it.
     received: list[dict] = []
@@ -461,11 +468,12 @@ async def test_sse_resume_by_last_event_id(client, repo) -> None:
                 event["data"] = line[6:]
             elif line == "" and event:
                 received.append(event)
-                if len(received) >= 2:
+                if event.get("event") == "job.log":
                     break
                 event = {}
     assert received, "expected replayed SSE events"
     assert all(e["id"] > second["id"] for e in received)
+    assert any(e["event"] == "job.log" for e in received)
 
 
 async def test_job_validation_error_shape(client, repo) -> None:

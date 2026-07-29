@@ -122,10 +122,19 @@ function LiveLogPane({ jobId }: { jobId: string }) {
   }
 
   if (live.log.length === 0) {
+    const files = Array.from(live.files.values());
+    const latestFile = files.at(-1);
+    const progress = latestFile
+      ? `${latestFile.state === "completed" ? "Reviewed" : "Reviewing"} ${latestFile.path}`
+      : live.phase
+        ? `Review ${live.phase} in progress…`
+        : live.connected
+          ? "Waiting for output…"
+          : "Connecting…";
     return (
       <div ref={logRef} className={styles.activeReviewLog} onScroll={onScroll}>
         <span className={layout.small} style={{ color: "var(--text-tertiary)" }}>
-          {live.connected ? "Waiting for output…" : "Connecting…"}
+          {progress}
         </span>
       </div>
     );

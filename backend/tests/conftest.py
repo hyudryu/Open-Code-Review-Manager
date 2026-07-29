@@ -107,6 +107,9 @@ def run_review(argv):
         emit({"type": "file_started", "filePath": "hello.py"})
         emit({"type": "file_completed", "filePath": "hello.py", "comments": 1})
 
+    if os.environ.get("FAKE_OCR_EARLY_LOG"):
+        print("review started")
+
     sleep = float(os.environ.get("FAKE_OCR_SLEEP", "0"))
     if sleep:
         time.sleep(sleep)
@@ -304,4 +307,3 @@ async def project(db, runtime, repo: Path):
         service = ProjectService(session)
         project = await service.create(absolute_path=str(repo))
         return project.id, project.absolute_path
-

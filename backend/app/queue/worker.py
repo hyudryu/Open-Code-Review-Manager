@@ -27,6 +27,7 @@ from app.db import models
 from app.db.session import get_session_factory
 from app.git.service import GitService
 from app.ocr.adapter import OCRAdapter
+from app.queue.processes import pid_alive
 from app.queue.runner import JobRunner
 from app.queue.service import QueueService, WebhookDispatcher
 
@@ -36,20 +37,7 @@ logger = get_logger(__name__)
 def _pid_alive(pid: int | None) -> bool:
     """Check whether a process PID is still running (cross-platform)."""
 
-    if pid is None:
-        return False
-    import os
-    import signal
-
-    try:
-        os.kill(pid, 0)  # signal 0 = existence check, no actual signal sent
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # process exists but we can't signal it — treat as alive
-    except OSError:
-        return False
-    return True
+    return pid_alive(pid)
 
 
 class QueueWorker:

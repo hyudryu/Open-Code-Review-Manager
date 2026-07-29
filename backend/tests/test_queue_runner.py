@@ -80,6 +80,7 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
         assert "job.status" in types
         assert "job.file_started" in types
         assert "job.file_completed" in types
+        assert "job.log" in types
         assert "job.summary" in types
 
     # Artifacts on disk.
@@ -118,6 +119,80 @@ async def test_failed_ocr_marks_job_failed(
     assert job.status == "failed"
     assert job.exit_code == 3
     assert "simulated OCR failure" in (job.status_message or "")
+
+
+async def test_early_log_is_unbuffered_and_persisted_while_running(
+    project, fake_ocr, make_worker, monkeypatch
+) -> None:
+    monkeypatch.setenv("FAKE_OCR_EARLY_LOG", "1")
+    monkeypatch.setenv("FAKE_OCR_SLEEP", "0.5")
+    project_id, _ = project
+    job_id = await _create_job(project_id, mode="commit", commit_ref="HEAD")
+    worker = make_worker()
+    drain_task = asyncio.create_task(worker.drain())
+
+    await _wait_status(job_id, {"running"})
+    persisted_log = None
+    for _ in range(50):
+        async with session_scope() as session:
+            persisted_log = (
+                await session.execute(
+                    select(models.JobEvent).where(
+                        models.JobEvent.job_id == job_id,
+                        models.JobEvent.event_type == "job.log",
+                    )
+                )
+            ).scalar_one_or_none()
+        if persisted_log is not None:
+            break
+        await asyncio.sleep(0.02)
+
+    assert persisted_log is not None
+    assert persisted_log.payload_json == {
+        "stream": "stdout",
+        "text": "review started",
+    }
+    assert not drain_task.done()
+    await asyncio.wait_for(drain_task, timeout=10)
+
+
+async def test_finalize_preserves_existing_terminal_state(
+    project, fake_ocr, make_worker
+) -> None:
+    project_id, _ = project
+    job_id = await _create_job(project_id, mode="commit", commit_ref="HEAD")
+    worker = make_worker()
+
+    async with session_scope() as session:
+        job = await session.get(models.ReviewJob, job_id)
+        queue = worker.runner._queue(session)
+        await queue.transition(job, "preparing")
+        await queue.transition(job, "running")
+        await queue.transition(
+            job,
+            "failed",
+            message="reaper terminalized this job",
+            error_code="process_died",
+        )
+
+    job_dir = worker.settings.job_dir(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = job_dir / "stdout.log"
+    stderr_path = job_dir / "stderr.log"
+    stdout_path.write_text("", encoding="utf-8")
+    stderr_path.write_text("", encoding="utf-8")
+
+    from app.queue.runner import ActiveJob
+
+    await worker.runner._finalize(
+        job_id, ActiveJob(job_id), 0, stdout_path, stderr_path
+    )
+
+    job = await _get_job(job_id)
+    assert job.status == "failed"
+    assert job.error_code == "process_died"
+    assert job.status_message == "reaper terminalized this job"
+    assert job.exit_code == 0
 
 
 async def test_cancel_running_job_kills_process_tree(

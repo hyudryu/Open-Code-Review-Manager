@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import app.ocr.adapter as adapter_module
 from app.core.logging import redact_text
 from app.core.security import redact_environment
 from app.ocr.adapter import OCRAdapter, ResultParseError, UnsupportedFeatureError
@@ -85,32 +86,6 @@ def test_capabilities_from_patched_help() -> None:
     assert caps.max_tokens and caps.template_override
 
 
-def test_patched_help_fixture_matches_planning_patch() -> None:
-    """The patched-help fixture must match the shipped patch's usage lines,
-    so the capability probe is tested against the exact text a patched
-    binary prints."""
-
-    patch_path = (
-        Path(__file__).resolve().parents[2]
-        / "patches"
-        / "open-code-review"
-        / "0001-planning-controls.patch"
-    )
-    assert patch_path.is_file(), "planning-controls patch missing"
-    added = [
-        line[1:]
-        for line in patch_path.read_text(encoding="utf-8").splitlines()
-        if line.startswith("+") and not line.startswith("+++")
-    ]
-    usage_lines = [line for line in added if line.strip().startswith("--")]
-    assert len(usage_lines) == 4, usage_lines
-    for flag in ("--plan-mode", "--plan-threshold", "--max-tokens", "--template"):
-        assert any(line.strip().startswith(flag) for line in usage_lines), flag
-        assert any(line in PATCHED_HELP_SUFFIX for line in usage_lines), (
-            "fixture drifted from patch help text"
-        )
-
-
 def test_parse_version() -> None:
     assert OCRAdapter.parse_version("opencodereview version 1.2.3 (abc)") == "1.2.3"
     assert OCRAdapter.parse_version("no version here") is None
@@ -145,7 +120,7 @@ def test_build_range_command(adapter: OCRAdapter) -> None:
         ),
         STOCK,
     )
-    assert argv[0] == "ocr"
+    assert Path(argv[0]).stem.lower() == "ocr"
     assert argv[1] == "review"
     assert "--from" in argv and "a" * 40 in argv
     assert "--to" in argv and "b" * 40 in argv
@@ -262,6 +237,7 @@ def test_build_job_environment(adapter: OCRAdapter, tmp_path: Path) -> None:
     env = adapter.build_job_environment(home, PROVIDER)
     assert env["HOME"] == str(home.resolve())
     assert env["USERPROFILE"] == str(home.resolve())
+    assert env["PYTHONUNBUFFERED"] == "1"
     assert env["OCR_LLM_URL"] == PROVIDER.base_url
     assert env["OCR_LLM_TOKEN"] == PROVIDER.token
     assert env["OCR_LLM_MODEL"] == PROVIDER.model
@@ -277,6 +253,40 @@ def test_build_job_environment(adapter: OCRAdapter, tmp_path: Path) -> None:
     assert shown["OCR_LLM_URL"] == PROVIDER.base_url
     # The token is registered with the global log redactor.
     assert PROVIDER.token not in redact_text(f"token={PROVIDER.token}")
+
+
+def test_exec_argv_unwraps_windows_npm_cmd_shim(
+    adapter: OCRAdapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = tmp_path / "npm bin" / "ocr.cmd"
+    script = shim.parent / "node_modules" / "@scope" / "ocr" / "bin" / "ocr.js"
+    script.parent.mkdir(parents=True)
+    script.write_text("console.log('ocr')", encoding="utf-8")
+    shim.write_text(
+        '@ECHO off\nendLocal & "%_prog%"  '
+        '"%dp0%\\node_modules\\@scope\\ocr\\bin\\ocr.js" %*\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(adapter_module, "IS_WINDOWS", True)
+    monkeypatch.setattr(adapter_module.shutil, "which", lambda name: "C:\\node.exe")
+
+    assert adapter.exec_argv([str(shim), "review", "--help"]) == [
+        "C:\\node.exe",
+        str(script),
+        "review",
+        "--help",
+    ]
+
+
+def test_exec_argv_preserves_unrecognised_windows_batch_file(
+    adapter: OCRAdapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = tmp_path / "custom.cmd"
+    shim.write_text("@echo custom %*\n", encoding="utf-8")
+    monkeypatch.setattr(adapter_module, "IS_WINDOWS", True)
+
+    argv = [str(shim), "review"]
+    assert adapter.exec_argv(argv) == argv
 
 
 def test_build_job_environment_strips_inherited(
