@@ -873,6 +873,7 @@
 }
 
 .usageModelBarTrack {
+  display: flex;
   height: 8px;
   background: var(--bg-subtle);
   border-radius: 4px;

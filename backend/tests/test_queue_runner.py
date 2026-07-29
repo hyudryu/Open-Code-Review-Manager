@@ -15,6 +15,8 @@ from sqlalchemy import select
 
 from app.db import models
 from app.db.session import session_scope
+from app.ocr.models import SessionEvent
+from app.queue.runner import JobRunner
 from app.services.jobs import JobService
 from app.services.profiles import ProfileService
 from app.services.providers import ProviderService
@@ -43,6 +45,44 @@ async def _wait_status(job_id: str, wanted: set[str], timeout: float = 15.0) -> 
             return job.status
         await asyncio.sleep(0.05)
     raise AssertionError(f"job {job_id} never reached {wanted}; last={job.status}")
+
+
+def test_current_ocr_session_records_map_to_progress_and_activity() -> None:
+    seen: set[str] = set()
+    planning = SessionEvent(
+        seq=1,
+        record_type="llm_request",
+        file_path="src/a.py",
+        task_type="plan_task",
+        request_no=1,
+    )
+
+    assert JobRunner._session_phase(planning) == "planning"
+    assert JobRunner._map_session_events(planning, seen) == [
+        (
+            "job.file_started",
+            {"session_id": None, "file": "src/a.py", "seq": 1},
+        )
+    ]
+    assert JobRunner._session_activity(planning) == (
+        "[planning] src/a.py - model request 1"
+    )
+    # Repeated model requests do not duplicate the file inventory.
+    assert JobRunner._map_session_events(planning, seen) == []
+
+    failed = SessionEvent(
+        seq=9,
+        record_type="review_item_failed",
+        file_path="src/a.py",
+        error="provider timed out",
+    )
+    mapped = JobRunner._map_session_events(failed, seen)
+    assert [event_type for event_type, _payload in mapped] == [
+        "job.warning",
+        "job.file_completed",
+    ]
+    assert mapped[1][1]["failed"] is True
+    assert JobRunner._session_activity(failed) == "[failed] src/a.py"
 
 
 async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -> None:
@@ -78,10 +118,16 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
         ).scalars().all()
         types = [e.event_type for e in events]
         assert "job.status" in types
+        assert "job.inventory" in types
         assert "job.file_started" in types
         assert "job.file_completed" in types
         assert "job.log" in types
         assert "job.summary" in types
+        inventory = next(e for e in events if e.event_type == "job.inventory")
+        assert inventory.payload_json == {
+            "files": ["hello.py"],
+            "total_files": 1,
+        }
 
     # Artifacts on disk.
     job_dir = Path(job.job_home_path).parent
