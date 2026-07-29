@@ -336,7 +336,13 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           ) : null}
         </div>
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <Input label="Name" required error={errors.name?.message} {...register("name")} />
+          <Input
+            label="Name"
+            required
+            disabled={profile.data?.is_system}
+            error={errors.name?.message}
+            {...register("name")}
+          />
           <Input label="Description" {...register("description")} />
         </div>
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
