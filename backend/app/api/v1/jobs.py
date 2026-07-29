@@ -97,7 +97,7 @@ async def preview_job(
 async def get_job(
     job_id: str,
     wait_for_terminal: bool = Query(default=False),
-    timeout_seconds: int = Query(default=300, ge=1, le=600),
+    timeout_seconds: int = Query(default=300, ge=0, le=86400),
     service: JobService = Depends(job_service),
 ):
     """Job detail. With ``wait_for_terminal=true`` this long-polls

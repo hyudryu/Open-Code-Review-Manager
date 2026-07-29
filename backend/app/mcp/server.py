@@ -274,10 +274,10 @@ async def ocr_get_job(
     With ``wait_for_terminal=True`` the call blocks server-side (async; it
     does NOT block the server) until the job reaches a terminal status
     (completed, completed_with_warnings, failed, cancelled, interrupted) or
-    ``timeout_seconds`` elapses (clamped to 1..600, default 300). The
-    response then includes ``terminal`` and ``wait_expired`` flags: when
-    ``wait_expired`` is true the job is still running and you may call again
-    to keep waiting — no client polling loop is needed otherwise.
+    ``timeout_seconds`` elapses. Pass ``timeout_seconds=0`` for an indefinite
+    wait (blocks until terminal). The response then includes ``terminal`` and
+    ``wait_expired`` flags: when ``wait_expired`` is true the job is still
+    running and you may call again to keep waiting.
     """
 
     factory = get_session_factory()
@@ -521,13 +521,16 @@ def build_mcp_server() -> FastMCP:
             "• \"what did the review find?\" / \"show me the findings\":\n"
             "  call ocr_get_findings with the job id.\n"
             "• \"is the review done?\": call ocr_get_job with "
-            "  wait_for_terminal=true.\n\n"
+            "wait_for_terminal=true.\n\n"
             "WORKFLOW:\n"
             "1. Find the project: call ocr_list_projects (or ocr_add_project "
             "   if not registered).\n"
             "2. Submit: call ocr_submit_review with the project id and the "
             "   appropriate mode/refs.\n"
-            "3. Wait: call ocr_get_job with wait_for_terminal=true.\n"
+            "3. Wait for completion: the MCP ocr_get_job tool may time out "
+            "after ~30s. For a single indefinite blocking call, use curl "
+            "via the Bash tool: "
+            "curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}?wait_for_terminal=true&timeout_seconds=0'\n"
             "4. Read results: call ocr_get_findings.\n\n"
             "MODES:\n"
             "  range (default) — compare two branches. base_ref auto-defaults "
@@ -639,8 +642,14 @@ def build_mcp_server() -> FastMCP:
         description=(
             "Get the status and progress of a review job. Pass "
             "wait_for_terminal=true to block until the job finishes "
-            "(completed, failed, cancelled) or the timeout (default 300s) "
-            "elapses. Use this after ocr_submit_review to wait for results.\n\n"
+            "(completed, failed, cancelled) or the timeout elapses. "
+            "timeout_seconds=0 means wait indefinitely.\n\n"
+            "TIP: The MCP client may time out after ~30s. For a single "
+            "blocking call that waits as long as needed, use curl via the "
+            "Bash tool instead:\n"
+            "  curl 'http://127.0.0.1:8372/api/v1/jobs/{job_id}?wait_for_terminal=true&timeout_seconds=0'\n"
+            "This blocks until the job completes and returns the full job "
+            "JSON including result_summary_json.\n\n"
             "RESPONSE FIELDS:\n"
             "  status          — queued|preparing|running|completed|completed_with_warnings|failed|cancelled|interrupted\n"
             "  status_message  — human-readable detail or error (null when ok)\n"

@@ -1,7 +1,7 @@
 /** Overview (SPEC §20) — decision-focused, varied layout, no stat-card grid. */
 
 import { Link, useNavigate } from "react-router-dom";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useJobs,
   useOcrUpdateStatus,
@@ -11,6 +11,7 @@ import {
   useSystemInfo,
   useSystemOcr,
 } from "../api/hooks";
+import { useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot } from "../components/ui";
 import { IconFolder, IconPlus } from "../components/ui/icons";
@@ -68,6 +69,64 @@ function FindingsTrend({ jobs }: { jobs: Job[] }) {
   );
 }
 
+/** Show the branch/commit being reviewed — never "HEAD". */
+function activeReviewTarget(job: Job): string {
+  if (job.mode === "range" || job.mode === "pr") {
+    return `${job.base_ref ?? "?"} → ${job.target_ref ?? "?"}`;
+  }
+  if (job.mode === "commit") {
+    // Prefer the resolved SHA from the snapshot; fall back to commit_ref.
+    const refs = job.configuration_snapshot_json?.refs as Record<string, string | null> | undefined;
+    const sha = refs?.commit_sha;
+    if (sha) return sha.slice(0, 8);
+    return job.commit_ref ?? "—";
+  }
+  return "Working tree";
+}
+
+/** Auto-scrolling live log pane. Sticks to bottom unless the user scrolls up. */
+function LiveLogPane({ jobId }: { jobId: string }) {
+  const live = useJobEvents(jobId, true);
+  const logRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && stickToBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [live.log]);
+
+  function onScroll() {
+    const el = logRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }
+
+  if (live.log.length === 0) {
+    return (
+      <div ref={logRef} className={styles.activeReviewLog} onScroll={onScroll}>
+        <span className={layout.small} style={{ color: "var(--text-tertiary)" }}>
+          {live.connected ? "Waiting for output…" : "Connecting…"}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div ref={logRef} className={styles.activeReviewLog} onScroll={onScroll}>
+      {live.log.map((line, i) => (
+        <span
+          key={i}
+          className={line.stream === "stderr" ? styles.activeReviewLogLineStderr : ""}
+        >
+          {line.text}
+          {"\n"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
   const queue = useQueue({ refetchInterval: 8_000 });
@@ -106,6 +165,8 @@ export function OverviewPage() {
 
   const projectName = (id: string) =>
     projects.data?.find((p) => p.id === id)?.display_name ?? "Project";
+
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
   const emptySetup =
     projects.data && providers.data && projects.data.length === 0;
@@ -157,28 +218,51 @@ export function OverviewPage() {
                 </p>
               </div>
             ) : (
-              <div className={styles.activeReview}>
-                {activeJobs.map((job) => (
-                  <div key={job.id} style={{ display: "contents" }}>
+              activeJobs.map((job) => {
+                const isExpanded = expandedJob === job.id;
+                return (
+                  <div
+                    key={job.id}
+                    className={`${styles.activeReview} ${styles.activeReviewCard}`}
+                    onClick={() => setExpandedJob(isExpanded ? null : job.id)}
+                  >
                     <div className={styles.activeReviewTop}>
-                      <Link to={`/jobs/${job.id}`} className={styles.activeReviewName}>
+                      <Link
+                        to={`/jobs/${job.id}`}
+                        className={styles.activeReviewName}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {projectName(job.project_id)}
                       </Link>
-                      <StatusDot
-                        tone={STATUS_TONE[job.status]}
-                        label={STATUS_LABEL[job.status]}
-                        pulse
-                      />
+                      <div className={layout.row} style={{ gap: 12 }}>
+                        {job.started_at ? (
+                          <span className={layout.small} style={{ color: "var(--text-tertiary)" }}>
+                            {formatDuration(job.started_at)} elapsed
+                          </span>
+                        ) : null}
+                        <StatusDot
+                          tone={STATUS_TONE[job.status]}
+                          label={STATUS_LABEL[job.status]}
+                          pulse
+                        />
+                      </div>
                     </div>
-                    <p className={layout.small}>{jobTargetLabel(job)}</p>
+                    <p className={layout.small}>{activeReviewTarget(job)}</p>
                     <div className={styles.progressBar} aria-hidden="true">
                       <div
                         className={`${styles.progressFill} ${styles.progressFillIndeterminate}`}
                       />
                     </div>
+                    {isExpanded ? (
+                      <LiveLogPane jobId={job.id} />
+                    ) : (
+                      <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
+                        Click to view live terminal output
+                      </p>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })
             )}
           </section>
 

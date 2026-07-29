@@ -22,8 +22,9 @@ from app.queue.service import TERMINAL_STATUSES
 logger = get_logger(__name__)
 
 #: Bounds for caller-supplied timeouts (seconds).
-MIN_TIMEOUT_SECONDS = 1
-MAX_TIMEOUT_SECONDS = 600
+#: 0 means indefinite — wait forever until the job reaches a terminal state.
+MIN_TIMEOUT_SECONDS = 0
+MAX_TIMEOUT_SECONDS = 86400  # 24h practical cap
 DEFAULT_TIMEOUT_SECONDS = 300
 
 #: Safety-net re-check interval in case a bus event is missed (seconds).
@@ -34,11 +35,18 @@ _TERMINAL_EVENT_TYPES = frozenset({"job.completed", "job.failed", "job.cancelled
 
 
 def clamp_timeout(timeout_seconds: int | None) -> int:
-    """Clamp a caller-supplied timeout into the supported range."""
+    """Clamp a caller-supplied timeout into the supported range.
+
+    0 means indefinite (wait forever); positive values are clamped to
+    [1, MAX_TIMEOUT_SECONDS]; None defaults to DEFAULT_TIMEOUT_SECONDS.
+    """
 
     if timeout_seconds is None:
         return DEFAULT_TIMEOUT_SECONDS
-    return max(MIN_TIMEOUT_SECONDS, min(MAX_TIMEOUT_SECONDS, int(timeout_seconds)))
+    val = int(timeout_seconds)
+    if val == 0:
+        return 0  # indefinite
+    return max(1, min(MAX_TIMEOUT_SECONDS, val))
 
 
 def _is_terminal_event(event: dict[str, Any]) -> bool:
@@ -81,16 +89,18 @@ async def wait_for_job_terminal(
     bus = get_event_bus()
     queue: asyncio.Queue = bus.subscribe(job_id)
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
+    deadline = None if timeout == 0 else loop.time() + timeout
     try:
         while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                return False
+            if deadline is not None:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return False
+                wait_for = min(RECHECK_INTERVAL_SECONDS, remaining)
+            else:
+                wait_for = RECHECK_INTERVAL_SECONDS
             try:
-                event = await asyncio.wait_for(
-                    queue.get(), timeout=min(RECHECK_INTERVAL_SECONDS, remaining)
-                )
+                event = await asyncio.wait_for(queue.get(), timeout=wait_for)
             except TimeoutError:
                 # Safety-net wakeup: re-check the DB in case an event was
                 # missed; cheap insurance, still fully async.
