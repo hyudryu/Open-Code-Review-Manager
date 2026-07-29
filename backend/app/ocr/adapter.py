@@ -480,9 +480,20 @@ class OCRAdapter:
 
         if provider.base_url:
             env["OCR_LLM_URL"] = provider.base_url
-        if provider.token:
-            env["OCR_LLM_TOKEN"] = provider.token
-            redactor.register(provider.token)
+        # Resolve OCR_LLM_TOKEN from credential or auth_header.
+        # The OCR binary requires URL/TOKEN/MODEL as a group; if any are
+        # set all three must be present. auth_header may contain a bearer
+        # token that the binary can use when no credential is stored.
+        token = provider.token
+        if not token and provider.auth_header:
+            hdr = provider.auth_header.strip()
+            if hdr.lower().startswith("bearer "):
+                token = hdr[7:]  # Extract token from "Bearer <token>"
+            elif hdr.lower().startswith("token "):
+                token = hdr[6:]
+        if token:
+            env["OCR_LLM_TOKEN"] = token
+            redactor.register(token)
         if provider.model:
             env["OCR_LLM_MODEL"] = provider.model
         if provider.protocol:
@@ -516,6 +527,12 @@ class OCRAdapter:
         Only settings not expressible (or not secret-safe) via env vars go
         here. The auth token and extra headers are NEVER written to disk —
         they travel via the process environment only.
+
+        When the provider has no resolved token (tokenless/keyless provider),
+        fall back to copying the user's global ``~/.opencodereview/config.json``
+        so the OCR binary can find the provider credentials it already knows
+        about. This is essential for providers that were configured via the
+        OCR CLI rather than this app's SecretStore.
         """
 
         home = normalize_path(job_home)
@@ -544,6 +561,31 @@ class OCRAdapter:
         effective_language = language or provider.language
         if effective_language:
             config["language"] = effective_language
+
+        # Tokenless provider fallback: if we don't have a token to pass via
+        # env vars, copy the user's global OCR config so the binary can find
+        # provider credentials (e.g. custom_providers with api_key) that were
+        # configured via the OCR CLI itself.
+        if not provider.token:
+            global_config = Path.home() / ".opencodereview" / "config.json"
+            if global_config.is_file():
+                try:
+                    global_data = json.loads(
+                        global_config.read_text(encoding="utf-8")
+                    )
+                    # Merge: keep our non-secret settings, but pull in the
+                    # provider credentials (custom_providers, providers, etc.)
+                    for key in ("providers", "custom_providers", "provider"):
+                        if key in global_data:
+                            config[key] = global_data[key]
+                    # If the global config has an llm block with credentials,
+                    # use it as the base and let our overrides win.
+                    global_llm = global_data.get("llm")
+                    if isinstance(global_llm, dict) and global_llm:
+                        merged_llm = {**global_llm, **llm}
+                        config["llm"] = merged_llm
+                except (OSError, json.JSONDecodeError):
+                    pass
 
         config_path = ocr_dir / "config.json"
         config_path.write_text(

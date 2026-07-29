@@ -219,6 +219,9 @@ class ReviewProfile(TimestampMixin, Base):
     tools_file_path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     background_template: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     additional_arguments: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    is_system: Mapped[bool] = mapped_column(
+        sa.Boolean, default=False, server_default=sa.false(), nullable=False
+    )
 
 
 class ReviewJob(Base):
@@ -246,6 +249,7 @@ class ReviewJob(Base):
     manual_position: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     status: Mapped[str] = mapped_column(sa.String(32), default="queued", nullable=False)
     status_message: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     configuration_snapshot_json: Mapped[dict[str, Any] | None] = mapped_column(
         sa.JSON, nullable=True
     )

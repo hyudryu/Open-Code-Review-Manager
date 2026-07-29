@@ -9,6 +9,7 @@ import {
   Button,
   EmptyState,
   ErrorState,
+  Select,
   Skeleton,
   StatusDot,
   Table,
@@ -127,30 +128,21 @@ export function DeliveriesPage() {
       />
 
       <div className={layout.row} style={{ marginBottom: 16 }}>
-        <label className={layout.small} htmlFor="endpoint-select">
+        <span className={layout.small} style={{ alignSelf: "center", marginRight: 8 }}>
           Endpoint
-        </label>
-        <select
-          id="endpoint-select"
+        </span>
+        <Select
+          aria-label="Filter by endpoint"
           value={effectiveId}
           onChange={(e) => setParams({ endpoint: e.target.value })}
-          style={{
-            height: 30,
-            borderRadius: 6,
-            border: "1px solid var(--border-strong)",
-            background: "var(--bg-surface)",
-            color: "var(--text-primary)",
-            padding: "0 10px",
-            font: "var(--text-body)",
-            fontSize: 13,
-          }}
         >
+          <option value="">All</option>
           {(webhooks.data ?? []).map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {!effectiveId ? (

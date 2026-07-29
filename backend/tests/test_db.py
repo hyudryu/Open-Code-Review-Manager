@@ -168,3 +168,53 @@ async def test_migration_idempotent(settings: Settings, tmp_path: Path) -> None:
     url = f"sqlite+aiosqlite:///{(tmp_path / 'idem.db').as_posix()}"
     await run_migrations_async(url)
     await run_migrations_async(url)  # second run is a no-op
+
+
+async def test_review_profile_has_is_system_column(db_url: str) -> None:
+    """Migration 0004 added review_profiles.is_system (NOT NULL, default false)."""
+
+    from app.db.session import get_engine
+
+    engine = get_engine()
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: {
+                c["name"]: c for c in inspect(sync_conn).get_columns("review_profiles")
+            }
+        )
+    assert "is_system" in cols
+    assert not bool(cols["is_system"]["nullable"])
+
+
+async def test_ensure_default_seeds_and_adopts(db_url: str) -> None:
+    """ensure_default() seeds a fresh Default when none exists, and adopts
+    (flags is_system) an existing "Default" when one does — preserving config."""
+
+    from app.services.profiles import ProfileService
+
+    # No profiles yet → seeds a fresh, unconfigured system Default.
+    async with session_scope() as s:
+        default = await ProfileService(s).ensure_default()
+        default_id = default.id
+    assert default.is_system is True
+    assert default.name == "Default"
+
+    # Re-running is idempotent: same row, still system, no duplicate.
+    async with session_scope() as s:
+        again = await ProfileService(s).ensure_default()
+        rows = await s.execute(select(models.ReviewProfile))
+        assert len(rows.scalars().all()) == 1
+    assert again.id == default_id
+    assert again.is_system is True
+
+    # If a user-made "Default" already exists, it gets adopted (flagged system)
+    # without losing its configuration.
+    async with session_scope() as s:
+        await s.execute(text("DELETE FROM review_profiles"))
+        user_default = models.ReviewProfile(name="Default", language="rust")
+        s.add(user_default)
+        await s.flush()
+        adopted = await ProfileService(s).ensure_default()
+        assert adopted.id == user_default.id
+        assert adopted.is_system is True
+        assert adopted.language == "rust"  # config preserved

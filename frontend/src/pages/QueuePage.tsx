@@ -1,15 +1,16 @@
 /**
- * Queue (SPEC §12, §20) — operator workspace: header controls, active jobs,
- * compact queued rows with drag-and-drop + keyboard alternatives, recently
- * completed. Reorder commits only on a valid drop and reverts on API failure.
+ * Queue (SPEC §12, §20) — operator workspace: header controls, queued jobs,
+ * active jobs, recently completed with inline findings expansion.
+ * Reorder commits only on a valid drop and reverts on API failure.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   useCancelJob,
   useClearCompleted,
   useDuplicateJob,
+  useFindings,
   useJobs,
   useMoveJob,
   usePauseJob,
@@ -26,8 +27,6 @@ import { PageHeader } from "../layouts/AppLayout";
 import {
   Button,
   ConfirmDialog,
-  EmptyState,
-  ErrorState,
   Menu,
   Skeleton,
   StatusDot,
@@ -40,9 +39,10 @@ import {
   IconPlay,
   IconQueue,
 } from "../components/ui/icons";
-import { relativeTime } from "../lib/format";
+import { formatDateTime } from "../lib/format";
 import { jobTargetLabel, MODE_LABEL, STATUS_LABEL, STATUS_TONE } from "../lib/status";
 import { TERMINAL_STATUSES, type Job } from "../types";
+import { FindingCard } from "../features/reviews/FindingCard";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
@@ -50,10 +50,49 @@ function jobKey(job: Job) {
   return job.id;
 }
 
+/** Inline findings expansion for completed jobs in the queue. */
+function ExpandedFindings({ jobId }: { jobId: string }) {
+  const findings = useFindings(jobId, { limit: 500 });
+  if (findings.isLoading) {
+    return (
+      <div className={styles.queueExpandBody}>
+        <Skeleton height={80} />
+      </div>
+    );
+  }
+  if (findings.error) {
+    return (
+      <div className={styles.queueExpandBody}>
+        <p className={layout.small} style={{ color: "var(--danger)" }}>
+          Could not load findings.
+        </p>
+      </div>
+    );
+  }
+  const items = findings.data?.items ?? [];
+  if (items.length === 0) {
+    return (
+      <div className={styles.queueExpandBody}>
+        <p className={layout.small}>No findings recorded.</p>
+      </div>
+    );
+  }
+  return (
+    <div className={styles.queueExpandBody}>
+      <div className={layout.stack} style={{ gap: 8 }}>
+        {items.map((f) => (
+          <FindingCard key={f.id} finding={f} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function QueuePage() {
   const queue = useQueue({ refetchInterval: 6_000 });
   const recent = useJobs({ limit: 15 });
   const projects = useProjects();
+  const navigate = useNavigate();
 
   const pauseQueue = usePauseQueue();
   const resumeQueue = useResumeQueue();
@@ -72,6 +111,7 @@ export function QueuePage() {
   const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<Job | null>(null);
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const announceTimer = useRef<number | null>(null);
 
@@ -201,6 +241,11 @@ export function QueuePage() {
           ]
         : []),
       {
+        key: "logs",
+        label: "Logs",
+        onSelect: () => navigate(`/reviews/${job.id}/logs`),
+      },
+      {
         key: "duplicate",
         label: "Duplicate",
         onSelect: () =>
@@ -273,7 +318,11 @@ export function QueuePage() {
       ) : null}
 
       {queue.error ? (
-        <ErrorState title="Could not load the queue" error={queue.error} onRetry={() => queue.refetch()} />
+        <div className={layout.section}>
+          <p className={layout.small} style={{ color: "var(--danger)" }}>
+            Could not load the queue.
+          </p>
+        </div>
       ) : queue.isLoading ? (
         <div className={layout.stack}>
           <Skeleton height={44} />
@@ -282,59 +331,16 @@ export function QueuePage() {
         </div>
       ) : (
         <>
-          <h2 className={styles.queueSectionTitle}>
-            Active — {activeJobs.length}
-          </h2>
-          {activeJobs.length === 0 ? (
-            <p className={layout.small}>Nothing running.</p>
-          ) : (
-            <div className={styles.queueRows}>
-              {activeJobs.map((job) => (
-                <div key={job.id} className={styles.queueRow} style={{ gridTemplateColumns: "24px 52px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}>
-                  <span />
-                  <span className={styles.priority}>{job.priority}</span>
-                  <Link to={`/jobs/${job.id}`} className={styles.ellipsize} style={{ color: "var(--text-primary)" }}>
-                    {projectName(job.project_id)}
-                  </Link>
-                  <span className={`${styles.ellipsize} ${layout.small}`}>{jobTargetLabel(job)}</span>
-                  <span className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`}>
-                    {MODE_LABEL[job.mode]} · {job.source}
-                  </span>
-                  <StatusDot tone={STATUS_TONE[job.status]} label={STATUS_LABEL[job.status]} pulse />
-                  <span className={`${layout.small} ${styles.queueRowHideMobile}`}>
-                    {relativeTime(job.started_at ?? job.queued_at)}
-                  </span>
-                  <Menu
-                    ariaLabel={`Actions for ${projectName(job.project_id)}`}
-                    trigger={
-                      <Button variant="tertiary" size="small" aria-label="Job actions">
-                        <IconMore size={15} />
-                      </Button>
-                    }
-                    items={rowActions(job)}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
+          {/* QUEUE — top, grows as items arrive */}
           <h2 className={styles.queueSectionTitle}>
             Queued — {queuedJobs.length}
             {optimisticOrder ? <span style={{ textTransform: "none" }}>(saving order…)</span> : null}
             {eta ? <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>(ETA: ~{eta})</span> : null}
           </h2>
           {queuedJobs.length === 0 ? (
-            <div className={layout.section}>
-              <EmptyState
-                icon={<IconQueue size={28} />}
-                title="Queue is empty"
-                body="Start a review from a project page and it will appear here."
-                action={
-                  <Link to="/reviews/new">
-                    <Button variant="primary" size="small">New review</Button>
-                  </Link>
-                }
-              />
+            <div className={styles.queuePlaceholder}>
+              <IconQueue size={16} />
+              <span>Queue is empty</span>
             </div>
           ) : (
             <div
@@ -406,10 +412,10 @@ export function QueuePage() {
                   <span className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`}>
                     {MODE_LABEL[job.mode]} · via {job.source}
                   </span>
-                  <span className={`${layout.small} ${styles.queueRowHideMobile}`}>
-                    {relativeTime(job.queued_at)}
-                  </span>
-                  <StatusDot tone="muted" label={job.paused ? "Paused" : "Queued"} />
+                  <div className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <StatusDot tone="muted" label={job.paused ? "Paused" : "Queued"} />
+                    <span>{formatDateTime(job.queued_at)}</span>
+                  </div>
                   <Menu
                     ariaLabel={`Actions for ${projectName(job.project_id)}`}
                     trigger={
@@ -424,30 +430,30 @@ export function QueuePage() {
             </div>
           )}
 
+          {/* ACTIVE — middle */}
           <h2 className={styles.queueSectionTitle}>
-            Recently completed — {completedJobs.length}
+            Active — {activeJobs.length}
           </h2>
-          {completedJobs.length === 0 ? (
-            <p className={layout.small}>No finished jobs yet.</p>
+          {activeJobs.length === 0 ? (
+            <p className={layout.small}>Nothing running.</p>
           ) : (
             <div className={styles.queueRows}>
-              {completedJobs.slice(0, 8).map((job) => (
+              {activeJobs.map((job) => (
                 <div key={job.id} className={styles.queueRow} style={{ gridTemplateColumns: "24px 52px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}>
                   <span />
                   <span className={styles.priority}>{job.priority}</span>
-                  <Link to={`/reviews/${job.id}`} className={styles.ellipsize} style={{ color: "var(--text-primary)" }}>
+                  <Link to={`/jobs/${job.id}`} className={styles.ellipsize} style={{ color: "var(--text-primary)" }}>
                     {projectName(job.project_id)}
                   </Link>
-                  <span className={`${styles.ellipsize} ${layout.small}`}>
-                    {jobTargetLabel(job)} · {job.findings_count} findings
-                  </span>
+                  <span className={`${styles.ellipsize} ${layout.small}`}>{jobTargetLabel(job)}</span>
                   <span className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`}>
-                    {MODE_LABEL[job.mode]} · via {job.source}
+                    {MODE_LABEL[job.mode]} · {job.source}
                   </span>
-                  <span className={`${layout.small} ${styles.queueRowHideMobile}`}>
-                    {relativeTime(job.completed_at)}
-                  </span>
-                  <StatusDot tone={STATUS_TONE[job.status]} label={STATUS_LABEL[job.status]} />
+                  <div className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <StatusDot tone={STATUS_TONE[job.status]} label={STATUS_LABEL[job.status]} pulse />
+                    <span>{formatDateTime(job.started_at ?? job.queued_at)}</span>
+                  </div>
+                  <span style={{ width: 0 }} />
                   <Menu
                     ariaLabel={`Actions for ${projectName(job.project_id)}`}
                     trigger={
@@ -459,6 +465,71 @@ export function QueuePage() {
                   />
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* COMPLETED — bottom, expandable */}
+          <h2 className={styles.queueSectionTitle}>
+            Recently completed — {completedJobs.length}
+          </h2>
+          {completedJobs.length === 0 ? (
+            <p className={layout.small}>No finished jobs yet.</p>
+          ) : (
+            <div className={styles.queueRows}>
+              {completedJobs.slice(0, 8).map((job) => {
+                const isExpanded = expandedJob === job.id;
+                return (
+                  <div key={job.id}>
+                    <div
+                      className={[
+                        styles.queueRow,
+                        styles.queueRowClickable,
+                        isExpanded ? styles.queueRowExpanded : "",
+                      ].filter(Boolean).join(" ")}
+                      style={{ gridTemplateColumns: "24px 52px minmax(0,2fr) minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto 32px" }}
+                      onClick={() => setExpandedJob(isExpanded ? null : job.id)}
+                    >
+                      <span />
+                      <span className={styles.priority}>{job.priority}</span>
+                      <Link
+                        to={`/reviews/${job.id}`}
+                        className={styles.ellipsize}
+                        style={{ color: "var(--text-primary)" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {projectName(job.project_id)}
+                      </Link>
+                      <span className={`${styles.ellipsize} ${layout.small}`}>
+                        {jobTargetLabel(job)} · {job.findings_count} findings
+                      </span>
+                      <span className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`}>
+                        {MODE_LABEL[job.mode]} · via {job.source}
+                      </span>
+                      <div className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <StatusDot
+                          tone={STATUS_TONE[job.status]}
+                          label={STATUS_LABEL[job.status]}
+                          title={job.error_code ? `Error: ${job.error_code}${job.status_message ? ` — ${job.status_message}` : ""}` : undefined}
+                        />
+                        <span>{formatDateTime(job.completed_at)}</span>
+                      </div>
+                      <span style={{ width: 0 }} />
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Menu
+                          ariaLabel={`Actions for ${projectName(job.project_id)}`}
+                          trigger={
+                            <Button variant="tertiary" size="small" aria-label="Job actions">
+                              <IconMore size={15} />
+                            </Button>
+                          }
+                          items={rowActions(job)}
+                        />
+                      </div>
+                    </div>
+                    {isExpanded ? <ExpandedFindings jobId={job.id} /> : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </>

@@ -60,6 +60,7 @@ class JobOut(ORMModel):
     queue_position: int | None
     status: str
     status_message: str | None
+    error_code: str | None
     paused: bool
     configuration_snapshot_json: dict[str, Any] | None
     generated_command_json: dict[str, Any] | None

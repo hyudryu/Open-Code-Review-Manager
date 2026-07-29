@@ -72,6 +72,8 @@
   --danger: #d70015;
   --danger-hover: #b90f1f;
   --danger-soft: rgba(215, 0, 21, 0.08);
+  --yellow: #8a6d00;
+  --yellow-soft: rgba(138, 109, 0, 0.12);
   --focus-ring: rgba(0, 113, 227, 0.45);
   --code-bg: rgba(0, 0, 0, 0.035);
   --diff-add-bg: rgba(36, 138, 61, 0.08);
@@ -102,6 +104,8 @@
   --danger: #ff453a;
   --danger-hover: #ff6157;
   --danger-soft: rgba(255, 69, 58, 0.12);
+  --yellow: #f0b700;
+  --yellow-soft: rgba(240, 183, 0, 0.16);
   --focus-ring: rgba(41, 151, 255, 0.55);
   --code-bg: rgba(255, 255, 255, 0.05);
   --diff-add-bg: rgba(48, 209, 88, 0.1);

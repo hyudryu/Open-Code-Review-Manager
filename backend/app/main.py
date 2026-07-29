@@ -61,6 +61,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         init_engine(settings.resolved_database_url)
         await run_migrations_async(settings.resolved_database_url)
 
+        # Seed the built-in Default profile (SPEC §8). Idempotent: adopts an
+        # existing "Default" if present, otherwise creates one. Must run after
+        # migrations so the ``is_system`` column exists.
+        from app.db.session import session_scope
+        from app.services.profiles import ProfileService
+
+        async with session_scope() as session:
+            default = await ProfileService(session).ensure_default()
+        logger.info("default_profile_ensured", id=default.id, name=default.name)
+
         git = get_git_service()
         adapter = get_ocr_adapter()
         secrets = get_secret_store()

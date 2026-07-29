@@ -14,12 +14,13 @@ export interface StatusDotProps {
   tone: StatusTone;
   label: string;
   pulse?: boolean;
+  title?: string;
 }
 
 /** Small dot + text — never color alone (SPEC §23). */
-export function StatusDot({ tone, label, pulse }: StatusDotProps) {
+export function StatusDot({ tone, label, pulse, title }: StatusDotProps) {
   return (
-    <span className={styles.statusDot}>
+    <span className={styles.statusDot} title={title}>
       <span
         className={`${styles.dot} ${DOT_CLASS[tone]} ${pulse ? styles.dotPulse : ""}`}
         aria-hidden="true"

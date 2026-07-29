@@ -157,6 +157,7 @@ export interface ReviewProfile {
   tools_file_path: string | null;
   background_template: string | null;
   additional_arguments: string | null;
+  is_system: boolean;
   created_at: string;
 }
 
@@ -213,6 +214,7 @@ export interface Job {
   queue_position: number | null;
   status: JobStatus;
   status_message: string | null;
+  error_code: string | null;
   paused: boolean;
   configuration_snapshot_json: Record<string, unknown> | null;
   generated_command_json: GeneratedCommand | null;

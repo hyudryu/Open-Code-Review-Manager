@@ -20,6 +20,7 @@ import {
   EmptyState,
   ErrorState,
   Menu,
+  Select,
   Skeleton,
   StatusDot,
   toast,
@@ -238,6 +239,11 @@ export function ResultPage() {
                   label: "Open session inspector",
                   onSelect: () => navigate(`/reviews/${jobId}/session`),
                 },
+                {
+                  key: "logs",
+                  label: "View OCR logs",
+                  onSelect: () => navigate(`/reviews/${jobId}/logs`),
+                },
               ]}
             />
           </>
@@ -302,9 +308,18 @@ export function ResultPage() {
         </section>
 
         {j.status_message ? (
-          <div className={styles.warningBox} role="status">
+          <div
+            className={styles.warningBox}
+            role="status"
+            title={j.error_code ? `Error: ${j.error_code}` : undefined}
+          >
             <IconWarning size={14} style={{ flex: "none", marginTop: 1 }} />
             <span>{j.status_message}</span>
+            {j.error_code ? (
+              <span className={layout.small} style={{ display: "block", marginTop: 4, color: "var(--text-tertiary)" }}>
+                Error code: {j.error_code}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -327,27 +342,17 @@ export function ResultPage() {
             <h2 className={layout.sectionTitle} style={{ margin: 0 }}>
               Findings by file
             </h2>
-            <select
+            <Select
               aria-label="Filter by finding state"
               value={stateFilter}
               onChange={(e) => setStateFilter(e.target.value)}
-              style={{
-                height: 28,
-                borderRadius: 6,
-                border: "1px solid var(--border-strong)",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                padding: "0 10px",
-                font: "var(--text-body)",
-                fontSize: 12.5,
-              }}
             >
               <option value="">All states</option>
               <option value="unreviewed">Unreviewed</option>
               <option value="accepted">Accepted</option>
               <option value="dismissed">Dismissed</option>
               <option value="needs_followup">Needs follow-up</option>
-            </select>
+            </Select>
           </div>
 
           {findings.isLoading ? (

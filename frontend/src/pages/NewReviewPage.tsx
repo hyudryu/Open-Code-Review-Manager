@@ -35,6 +35,7 @@ import { CommandPreviewView } from "../features/reviews/CommandPreview";
 import { parseAdditionalArgs } from "../lib/args";
 import { buildCommandPreview } from "../lib/command";
 import { relativeTime, shortSha } from "../lib/format";
+import { ApiError } from "../api/client";
 import type { Branch, JobMode, PullRequest } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
@@ -264,6 +265,14 @@ export function NewReviewPage() {
       navigate(`/jobs/${job.id}`);
     } catch (err) {
       setSubmitError(err);
+      if (err instanceof ApiError && err.code === "default_profile_not_configured") {
+        toast.error(
+          "Default profile not configured",
+          "Set a provider and model on the Default profile before queuing a review.",
+        );
+      } else {
+        toast.error("Could not queue the review", err instanceof Error ? err.message : undefined);
+      }
     }
   }
 

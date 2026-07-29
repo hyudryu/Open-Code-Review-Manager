@@ -1,6 +1,6 @@
 /** Finding card (SPEC §15) — copy actions, user-state triage, note. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Finding, FindingState } from "../../types";
 import { useFindingReasoning, useUpdateFinding } from "../../api/hooks";
 import { Badge, Button, CopyButton } from "../../components/ui";
@@ -21,6 +21,16 @@ export const FINDING_STATE_TONE: Record<FindingState, "neutral" | "success" | "w
   dismissed: "neutral",
   needs_followup: "warning",
 };
+
+const SEVERITY_TONE: Record<string, "danger" | "warning" | "yellow"> = {
+  high: "danger",
+  medium: "warning",
+  low: "yellow",
+};
+
+function severityTone(severity: string | null): "danger" | "warning" | "yellow" {
+  return SEVERITY_TONE[severity ?? ""] ?? "neutral";
+}
 
 export function FindingCard({ finding }: { finding: Finding }) {
   const update = useUpdateFinding();
@@ -45,6 +55,23 @@ export function FindingCard({ finding }: { finding: Finding }) {
       ? `${finding.path}:${finding.start_line}${finding.end_line && finding.end_line !== finding.start_line ? `-${finding.end_line}` : ""}`
       : finding.path;
 
+  /** Build the full clipboard text: location → content → code blocks */
+  const copyText = useMemo(() => {
+    const parts = [`[${lineRef}]`, ""];
+    parts.push(finding.content);
+    if (finding.existing_code) {
+      parts.push("");
+      parts.push("---");
+      parts.push(finding.existing_code);
+    }
+    if (finding.suggestion_code) {
+      parts.push("");
+      parts.push("---");
+      parts.push(finding.suggestion_code);
+    }
+    return parts.join("\n");
+  }, [finding.content, finding.existing_code, finding.suggestion_code, lineRef]);
+
   return (
     <article className={styles.findingCard} aria-label={`Finding in ${finding.path}`}>
       <div className={styles.findingHeader}>
@@ -52,15 +79,18 @@ export function FindingCard({ finding }: { finding: Finding }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <code className={layout.monoPath} style={{ fontSize: 12.5 }}>{lineRef}</code>
             {finding.category ? <Badge>{finding.category}</Badge> : null}
-            {finding.severity ? <Badge tone="warning">{finding.severity}</Badge> : null}
+            {finding.severity ? (
+              <Badge tone={severityTone(finding.severity)}>
+                {finding.severity.toUpperCase()}
+              </Badge>
+            ) : null}
             <Badge tone={FINDING_STATE_TONE[finding.user_state]}>
               {FINDING_STATE_LABEL[finding.user_state]}
             </Badge>
           </div>
         </div>
         <div style={{ display: "flex", gap: 2, flex: "none" }}>
-          <CopyButton text={finding.content} label="Finding" />
-          <CopyButton text={lineRef} label="Location" />
+          <CopyButton text={copyText} label="Copy finding" />
         </div>
       </div>
 

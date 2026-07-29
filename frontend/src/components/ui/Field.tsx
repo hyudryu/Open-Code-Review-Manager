@@ -123,7 +123,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 Textarea.displayName = "Textarea";
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label: string;
+  label?: string;
   help?: string;
   error?: string | null;
   children: ReactNode;
@@ -133,6 +133,27 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, help, error, id, className, required, children, ...props }, ref) => {
     const autoId = useId();
     const inputId = id ?? autoId;
+    const baseClass = [styles.select, error ? styles.selectInvalid : "", className ?? ""]
+      .filter(Boolean)
+      .join(" ");
+
+    if (!label) {
+      // Inline filter mode: no FieldShell, just a styled select with aria-label
+      return (
+        <select
+          ref={ref}
+          id={inputId}
+          required={required}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={help ? `${inputId}-help` : undefined}
+          className={baseClass}
+          {...props}
+        >
+          {children}
+        </select>
+      );
+    }
+
     return (
       <FieldShell label={label} htmlFor={inputId} help={help} error={error} required={required}>
         <select
@@ -141,9 +162,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           required={required}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedByIds(inputId, help, error)}
-          className={[styles.select, error ? styles.selectInvalid : "", className ?? ""]
-            .filter(Boolean)
-            .join(" ")}
+          className={baseClass}
           {...props}
         >
           {children}

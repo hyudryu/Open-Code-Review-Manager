@@ -30,6 +30,7 @@ from app.queue.service import QueueService
 from app.services.deps import ServiceBase
 from app.services.errors import (
     ConflictError,
+    DefaultProfileNotConfiguredError,
     NotFoundError,
     ValidationFailedError,
 )
@@ -128,9 +129,13 @@ class JobService(ServiceBase):
         try:
             if mode == "range":
                 if not base_ref or not target_ref:
+                    missing = "target_ref" if base_ref else "base_ref and target_ref"
                     raise ValidationFailedError(
-                        "Range reviews need a base and a target ref.",
-                        next_action="Pick both branches in the review form.",
+                        f"Range reviews need {missing}.",
+                        next_action=(
+                            f"Pass target_ref (the branch to review). "
+                            f"base_ref defaults to the project's default branch."
+                        ),
                     )
                 shas["base_sha"] = await self.git.resolve_ref(
                     project.absolute_path, base_ref
@@ -311,6 +316,46 @@ class JobService(ServiceBase):
             model = await self.session.get(models.Model, profile.model_id)
         return provider, model
 
+    async def _resolve_profile(
+        self, profile_id: str | None
+    ) -> models.ReviewProfile | None:
+        """Resolve the profile for a review, falling back to the system Default.
+
+        When ``profile_id`` is omitted, the built-in Default profile is used
+        (seeded at startup). An explicit ``profile_id`` that doesn't exist is a
+        hard ``not_found`` error.
+        """
+
+        if profile_id:
+            profile = await self.session.get(models.ReviewProfile, profile_id)
+            if profile is None:
+                raise NotFoundError("Review profile", profile_id)
+            return profile
+        from app.services.profiles import ProfileService
+
+        return await ProfileService(self.session).get_default()
+
+    @staticmethod
+    def _assert_default_configured(profile: models.ReviewProfile | None) -> None:
+        """Reject queuing when the review resolves to an unconfigured Default.
+
+        The system Default is the only profile that may be used without an
+        explicit selection, so it's the only one we gate on configuration. Any
+        other profile (explicitly chosen) is allowed as-is, matching prior
+        behavior where "no provider" means OCR's own default config.
+        """
+
+        if profile is not None and profile.is_system:
+            if not profile.provider_profile_id or not profile.model_id:
+                missing = []
+                if not profile.provider_profile_id:
+                    missing.append("a provider")
+                if not profile.model_id:
+                    missing.append("a model")
+                raise DefaultProfileNotConfiguredError(
+                    detail="The Default profile is missing " + " and ".join(missing) + "."
+                )
+
     async def create(
         self,
         *,
@@ -341,17 +386,29 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
-        profile = None
-        if profile_id:
-            profile = await self.session.get(models.ReviewProfile, profile_id)
-            if profile is None:
-                raise NotFoundError("Review profile", profile_id)
+        # Range mode: auto-default base_ref so the agent only needs target_ref.
+        # Prefer the project's recorded default branch; fall back to its
+        # current branch (local-only repos may not have a detected default).
+        if mode == "range" and not base_ref:
+            base_ref = project.default_branch or project.current_branch
+        # Explicit selection → hard not_found if absent; omitted → system Default.
+        profile = await self._resolve_profile(profile_id)
 
+        # Cheap syntactic format validation for refs that are present.
+        # Empty/missing refs are handled by _resolve_refs with a helpful error.
         if mode == "range":
-            validate_git_ref(base_ref or "")
-            validate_git_ref(target_ref or "")
+            if base_ref:
+                validate_git_ref(base_ref)
+            if target_ref:
+                validate_git_ref(target_ref)
         if mode == "commit":
-            validate_git_ref(commit_ref or "")
+            if commit_ref:
+                validate_git_ref(commit_ref)
+
+        # The Default profile must be configured (provider + model) before a
+        # review that resolves to it can be queued. Checked after the cheap
+        # request-shape validations but before any worktree/argv work.
+        self._assert_default_configured(profile)
 
         if mode == "pr":
             base_ref, target_ref, shas = await self._resolve_pr(
@@ -565,9 +622,13 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
-        profile = None
-        if profile_id:
-            profile = await self.session.get(models.ReviewProfile, profile_id)
+        # Range mode: auto-default base_ref (same logic as submit).
+        if mode == "range" and not base_ref:
+            base_ref = project.default_branch or project.current_branch
+        # Same resolution + configuration rule as submit: omitted → Default,
+        # and an unconfigured Default is rejected up front.
+        profile = await self._resolve_profile(profile_id)
+        self._assert_default_configured(profile)
         if mode == "pr":
             base_ref, target_ref, shas = await self._resolve_pr(
                 project, pr_number=pr_number, base_ref=base_ref

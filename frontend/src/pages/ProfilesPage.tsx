@@ -226,6 +226,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           tools_file_path: watched.tools_file_path || null,
           background_template: watched.background_template || null,
           additional_arguments: watched.additional_arguments || null,
+          is_system: profileId ? (profile.data?.is_system ?? false) : false,
           created_at: "",
         },
         model: modelObj?.model_id ?? null,
@@ -233,7 +234,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
       },
       ocr.data,
     );
-  }, [watched, models.data, ocr.data, argsError, argsPreview, profileId]);
+  }, [watched, models.data, ocr.data, argsError, argsPreview, profileId, profile.data]);
 
   async function onSubmit(values: FormValues) {
     setSubmitError(null);
@@ -312,6 +313,9 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           </h2>
           {profileId ? (
             <div className={layout.row}>
+              {profile.data?.is_system ? (
+                <Badge tone="accent">Default</Badge>
+              ) : null}
               <Button
                 variant="tertiary"
                 size="small"
@@ -324,14 +328,22 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
               >
                 Duplicate
               </Button>
-              <Button variant="destructive-quiet" size="small" onClick={() => setDeleteOpen(true)}>
-                Delete
-              </Button>
+              {profile.data?.is_system ? null : (
+                <Button variant="destructive-quiet" size="small" onClick={() => setDeleteOpen(true)}>
+                  Delete
+                </Button>
+              )}
             </div>
           ) : null}
         </div>
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <Input label="Name" required error={errors.name?.message} {...register("name")} />
+          <Input
+            label="Name"
+            required
+            disabled={profile.data?.is_system}
+            error={errors.name?.message}
+            {...register("name")}
+          />
           <Input label="Description" {...register("description")} />
         </div>
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>

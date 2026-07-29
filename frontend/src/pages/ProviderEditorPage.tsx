@@ -412,21 +412,11 @@ export function ProviderEditorPage() {
               Sends a real minimal request to the configured endpoint asking the model to
               reply. No LLM config is written; your key is never logged or displayed.
             </p>
-            <div className={layout.row}>
-              <select
+            <div className={layout.row} style={{ alignItems: "center" }}>
+              <Select
                 aria-label="Model to test with"
                 value={testModel}
                 onChange={(e) => setTestModel(e.target.value)}
-                style={{
-                  height: 30,
-                  borderRadius: 6,
-                  border: "1px solid var(--border-strong)",
-                  background: "var(--bg-surface)",
-                  color: "var(--text-primary)",
-                  padding: "0 10px",
-                  font: "var(--text-body)",
-                  fontSize: 13,
-                }}
               >
                 <option value="">Select a model…</option>
                 {modelList.map((m) => (
@@ -434,7 +424,7 @@ export function ProviderEditorPage() {
                     {m.display_name ?? m.model_id}
                   </option>
                 ))}
-              </select>
+              </Select>
               <Button
                 variant="secondary"
                 onClick={runTest}

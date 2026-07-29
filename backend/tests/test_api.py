@@ -40,6 +40,31 @@ async def client(settings, fake_ocr, runtime, repo):
             # Prime the CSRF cookie via a safe request.
             response = await c.get("/api/v1/health")
             assert response.status_code == 200
+            # The lifespan seeds an unconfigured Default profile. Bind a
+            # provider + model to it so reviews submitted without a profile_id
+            # (the fallback) actually run — mirroring a configured install.
+            h = {"X-OCR-CSRF": c.cookies.get("ocrcc_csrf")}
+            r = await c.post(
+                "/api/v1/providers",
+                json={"name": "DefaultProv", "protocol": "openai"},
+                headers=h,
+            )
+            provider_id = r.json()["id"]
+            r = await c.post(
+                f"/api/v1/providers/{provider_id}/models",
+                json={"model_id": "default-model"},
+                headers=h,
+            )
+            model_id = r.json()["id"]
+            default = next(
+                p for p in (await c.get("/api/v1/review-profiles")).json()
+                if p["is_system"]
+            )
+            await c.patch(
+                f"/api/v1/review-profiles/{default['id']}",
+                json={"provider_profile_id": provider_id, "model_id": model_id},
+                headers=h,
+            )
             yield c
     finally:
         stop.set()
@@ -726,4 +751,56 @@ async def test_browse_directory_file_is_422(client, tmp_path) -> None:
     response = await client.get("/api/v1/system/browse", params={"path": str(file)})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_default_profile_seeded_and_non_deletable(client) -> None:
+    """The lifespan seeds a system Default profile; it's flagged is_system and
+    cannot be deleted. Newly created profiles are not system profiles."""
+
+    response = await client.get("/api/v1/review-profiles")
+    profiles = response.json()
+    defaults = [p for p in profiles if p["is_system"]]
+    assert len(defaults) == 1
+    default = defaults[0]
+    assert default["name"] == "Default"
+
+    headers = csrf(client)
+    response = await client.delete(
+        f"/api/v1/review-profiles/{default['id']}", headers=headers
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+    # A user-created profile is not a system profile.
+    response = await client.post(
+        "/api/v1/review-profiles",
+        json={"name": "Custom"},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    assert response.json()["is_system"] is False
+
+
+async def test_submit_without_profile_uses_configured_default(client, repo) -> None:
+    """A job submitted with no profile_id resolves to the (configured) Default
+    profile rather than being rejected. The client fixture configures Default
+    with a provider + model, so this should queue and complete."""
+
+    headers = csrf(client)
+    response = await client.post(
+        "/api/v1/projects", json={"absolute_path": str(repo)}, headers=headers
+    )
+    project_id = response.json()["id"]
+    response = await client.post(
+        "/api/v1/jobs",
+        json={"project_id": project_id, "mode": "commit", "commit_ref": "HEAD"},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    job_id = response.json()["id"]
+
+    # The job should record the system Default profile as its profile.
+    default = next(p for p in (await client.get("/api/v1/review-profiles")).json() if p["is_system"])
+    job = (await client.get(f"/api/v1/jobs/{job_id}")).json()
+    assert job["profile_id"] == default["id"]
 

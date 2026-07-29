@@ -126,7 +126,7 @@ class JobRunner:
             try:
                 worktree_created, workspace_lock = await self._prepare(job_id)
             except Exception as exc:
-                await self._fail(job_id, f"preparation failed: {redact_text(str(exc))[:500]}")
+                await self._fail(job_id, f"preparation failed: {redact_text(str(exc))[:500]}", error_code="preparation_failed")
                 raise
 
             await self._execute(job_id, active)
@@ -166,7 +166,9 @@ class JobRunner:
             await queue.emit_event(job_id, event_type, payload, persist=persist)
             await session.commit()
 
-    async def _fail(self, job_id: str, message: str) -> None:
+    async def _fail(
+        self, job_id: str, message: str, *, error_code: str = "ocr_exit"
+    ) -> None:
         factory = get_session_factory()
         async with factory() as session:
             job = await session.get(models.ReviewJob, job_id)
@@ -175,9 +177,13 @@ class JobRunner:
             queue = self._queue(session)
             try:
                 if job.status == "cancelling":
-                    await queue.transition(job, "cancelled", message="Cancelled.")
+                    await queue.transition(
+                        job, "cancelled", message="Cancelled.", error_code="cancelled"
+                    )
                 elif job.status in {"preparing", "running"}:
-                    await queue.transition(job, "failed", message=message)
+                    await queue.transition(
+                        job, "failed", message=message, error_code=error_code
+                    )
             except Exception:
                 logger.exception("job_fail_transition_error", job_id=job_id)
             await session.commit()
@@ -338,7 +344,7 @@ class JobRunner:
             command = dict(job.generated_command_json or {})
             argv = list(command.get("argv") or [])
             if not argv:
-                await self._fail(job_id, "job has no generated command")
+                await self._fail(job_id, "job has no generated command", error_code="no_generated_command")
                 return
             repo_path = self._repo_paths.get(job_id, job.workspace_path)
             job_home = Path(job.job_home_path or self.settings.job_home(job_id))
@@ -358,7 +364,8 @@ class JobRunner:
                 provider = await session.get(models.ProviderProfile, provider_info["id"])
                 if provider is None:
                     await self._fail(
-                        job_id, "the provider used by this job was deleted"
+                        job_id, "the provider used by this job was deleted",
+                        error_code="provider_unavailable",
                     )
                     return
                 resolution = await providers.resolve(
@@ -388,7 +395,8 @@ class JobRunner:
             )
         except OSError as exc:
             await self._fail(
-                job_id, f"could not start OCR: {redact_text(str(exc))[:300]}"
+                job_id, f"could not start OCR: {redact_text(str(exc))[:300]}",
+                error_code="ocr_process_start_failed",
             )
             return
         active.proc = proc
@@ -646,6 +654,7 @@ class JobRunner:
                     job,
                     "failed",
                     message=message,
+                    error_code="ocr_exit",
                     payload={"detail": detail[:500], "exit_code": exit_code},
                 )
                 job.status_message = (
@@ -688,6 +697,7 @@ class JobRunner:
                         job,
                         "failed",
                         message=parsed.message or "OCR reported a failure.",
+                        error_code="ocr_reported_failure",
                         payload={"exit_code": exit_code},
                     )
                 else:

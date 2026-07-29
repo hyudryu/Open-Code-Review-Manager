@@ -396,6 +396,12 @@
   color: var(--danger);
 }
 
+.badgeYellow {
+  background: var(--yellow-soft);
+  border-color: transparent;
+  color: var(--yellow);
+}
+
 /* --- Modal --------------------------------------------------------------------- */
 
 .modalOverlay {

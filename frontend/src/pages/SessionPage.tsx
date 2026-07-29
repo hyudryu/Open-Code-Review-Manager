@@ -14,6 +14,7 @@ import {
   EmptyState,
   ErrorState,
   Input,
+  Select,
   Skeleton,
   toast,
 } from "../components/ui";
@@ -201,26 +202,17 @@ export function SessionPage() {
             <label className={layout.small} style={{ display: "block", marginBottom: 4 }}>
               Task type
             </label>
-            <select
+            <Select
+              aria-label="Filter by task type"
               value={taskFilter}
               onChange={(e) => setTaskFilter(e.target.value)}
-              aria-label="Filter by task type"
-              style={{
-                height: 32,
-                width: "100%",
-                borderRadius: 8,
-                border: "1px solid var(--border-strong)",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                padding: "0 10px",
-              }}
             >
               {TASK_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t || "All task types"}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 

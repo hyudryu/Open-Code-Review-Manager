@@ -79,6 +79,28 @@ class ValidationFailedError(ServiceError):
         )
 
 
+class DefaultProfileNotConfiguredError(ServiceError):
+    """The system Default profile lacks a provider and/or model.
+
+    Distinct ``code`` so MCP clients and the UI can react specifically (e.g.
+    prompt the user to fill out the Default profile) rather than treat it as a
+    generic validation failure.
+    """
+
+    def __init__(self, *, detail: str, next_action: str | None = None) -> None:
+        super().__init__(
+            "default_profile_not_configured",
+            "The Default review profile isn't configured yet.",
+            detail=detail,
+            next_action=(
+                next_action
+                or "Open the Profiles page, select the Default profile, and set a "
+                "provider and a model before queuing a review."
+            ),
+            http_status=422,
+        )
+
+
 class InvalidTransitionError(ServiceError):
     def __init__(self, job_id: str, current: str, target: str) -> None:
         super().__init__(
