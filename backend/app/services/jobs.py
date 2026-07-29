@@ -129,9 +129,13 @@ class JobService(ServiceBase):
         try:
             if mode == "range":
                 if not base_ref or not target_ref:
+                    missing = "target_ref" if base_ref else "base_ref and target_ref"
                     raise ValidationFailedError(
-                        "Range reviews need a base and a target ref.",
-                        next_action="Pick both branches in the review form.",
+                        f"Range reviews need {missing}.",
+                        next_action=(
+                            f"Pass target_ref (the branch to review). "
+                            f"base_ref defaults to the project's default branch."
+                        ),
                     )
                 shas["base_sha"] = await self.git.resolve_ref(
                     project.absolute_path, base_ref
@@ -382,14 +386,24 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
+        # Range mode: auto-default base_ref so the agent only needs target_ref.
+        # Prefer the project's recorded default branch; fall back to its
+        # current branch (local-only repos may not have a detected default).
+        if mode == "range" and not base_ref:
+            base_ref = project.default_branch or project.current_branch
         # Explicit selection → hard not_found if absent; omitted → system Default.
         profile = await self._resolve_profile(profile_id)
 
+        # Cheap syntactic format validation for refs that are present.
+        # Empty/missing refs are handled by _resolve_refs with a helpful error.
         if mode == "range":
-            validate_git_ref(base_ref or "")
-            validate_git_ref(target_ref or "")
+            if base_ref:
+                validate_git_ref(base_ref)
+            if target_ref:
+                validate_git_ref(target_ref)
         if mode == "commit":
-            validate_git_ref(commit_ref or "")
+            if commit_ref:
+                validate_git_ref(commit_ref)
 
         # The Default profile must be configured (provider + model) before a
         # review that resolves to it can be queued. Checked after the cheap
@@ -608,6 +622,9 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
+        # Range mode: auto-default base_ref (same logic as submit).
+        if mode == "range" and not base_ref:
+            base_ref = project.default_branch or project.current_branch
         # Same resolution + configuration rule as submit: omitted → Default,
         # and an unconfigured Default is rejected up front.
         profile = await self._resolve_profile(profile_id)

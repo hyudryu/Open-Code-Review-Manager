@@ -131,7 +131,7 @@ async def ocr_list_profiles() -> list[dict[str, Any]]:
 
 async def ocr_preview_review(
     project_id: str,
-    mode: str,
+    mode: str = "range",
     base_ref: str | None = None,
     target_ref: str | None = None,
     commit_ref: str | None = None,
@@ -154,13 +154,29 @@ async def ocr_preview_review(
                 exclude_patterns=exclude_patterns,
             )
         except ServiceError as exc:
-            return _error_payload(exc)
+            payload = _error_payload(exc)
+            if exc.code == "validation_failed":
+                payload["error"]["detail"] = (
+                    (payload["error"].get("detail") or "") + "\n\n" + _MODE_GUIDE
+                ).strip()
+            return payload
         return result.model_dump()
+
+
+_MODE_GUIDE = (
+    "Review modes (each needs different refs):\n"
+    "  range     — compare base_ref against target_ref (two branches). "
+    "base_ref defaults to the project's default branch if omitted; "
+    "target_ref is required.\n"
+    "  commit    — review a single commit_ref or SHA (e.g. \"HEAD\").\n"
+    "  workspace — review uncommitted changes in the working tree. No refs needed.\n"
+    "  pr        — review pull request pr_number head vs its base."
+)
 
 
 async def ocr_submit_review(
     project_id: str,
-    mode: str,
+    mode: str = "range",
     base_ref: str | None = None,
     target_ref: str | None = None,
     commit_ref: str | None = None,
@@ -172,7 +188,12 @@ async def ocr_submit_review(
     webhook_secret: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Asynchronous submission — returns a durable job id immediately."""
+    """Asynchronous submission — returns a durable job id immediately.
+
+    mode defaults to "range". In range mode, base_ref defaults to the
+    project's default branch (usually "main") so only target_ref is
+    strictly required.
+    """
 
     factory = get_session_factory()
     async with factory() as session:
@@ -197,7 +218,14 @@ async def ocr_submit_review(
             position = await queue.queue_position(job)
             await session.commit()
         except ServiceError as exc:
-            return _error_payload(exc)
+            payload = _error_payload(exc)
+            # Enrich missing-ref errors with the full mode guide so the
+            # agent can self-correct without another round-trip.
+            if exc.code == "validation_failed":
+                payload["error"]["detail"] = (
+                    (payload["error"].get("detail") or "") + "\n\n" + _MODE_GUIDE
+                ).strip()
+            return payload
         return {
             "job_id": job.id,
             "status": job.status,
@@ -526,7 +554,9 @@ def build_mcp_server() -> FastMCP:
         name="ocr_submit_review",
         description=(
             "Submit a review job asynchronously; returns a durable job id "
-            "immediately. Omit profile_id to use the built-in Default profile, "
+            "immediately. mode defaults to 'range'. In range mode base_ref "
+            "defaults to the project's default branch, so only target_ref "
+            "is required. Omit profile_id to use the built-in Default profile, "
             "which must have a provider and model set; otherwise it returns a "
             "default_profile_not_configured error."
         ),

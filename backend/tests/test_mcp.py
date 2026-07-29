@@ -300,3 +300,55 @@ async def test_default_profile_not_deletable(db, runtime) -> None:
 
         with pytest.raises(ConflictError):
             await service.delete(default_id)
+
+
+async def _configure_default_for_range_tests(make_repo) -> str:
+    """Set up a provider+model on Default and return a registered project id."""
+    repo = make_repo("range_repo")
+    async with session_scope() as session:
+        providers = ProviderService(session)
+        provider = await providers.create(
+            name="RangeProv", protocol="openai", base_url="https://api.example.test/v1"
+        )
+        model = await providers.add_manual_model(provider.id, model_id="range-model")
+        provider_id, model_pk = provider.id, model.id
+    await _configure_default_profile(provider_id, model_pk)
+    added = await mcp_server.ocr_add_project(absolute_path=str(repo))
+    return added["id"]
+
+
+async def test_submit_default_mode_defaults_to_range(db, runtime, make_repo, fake_ocr) -> None:
+    """Omitting mode defaults to 'range'. With no target_ref, the error should
+    be self-documenting and mention all modes."""
+    project_id = await _configure_default_for_range_tests(make_repo)
+    result = await mcp_server.ocr_submit_review(project_id=project_id)
+    assert "error" in result
+    err = result["error"]
+    assert err["code"] == "validation_failed"
+    # The mode guide must be appended so the agent can self-correct.
+    assert "range" in err["detail"]
+    assert "commit" in err["detail"]
+    assert "workspace" in err["detail"]
+    assert "pr" in err["detail"]
+
+
+async def test_submit_range_auto_defaults_base_ref(db, runtime, make_repo, make_worker, fake_ocr) -> None:
+    """In range mode, omitting base_ref auto-defaults to the project's
+    default branch. Only target_ref is required."""
+    project_id = await _configure_default_for_range_tests(make_repo)
+    # The test repo only has 'main', so review main..main (valid range).
+    submitted = await mcp_server.ocr_submit_review(
+        project_id=project_id, target_ref="main"
+    )
+    assert "status" in submitted, f"unexpected error: {submitted}"
+    assert submitted["status"] == "queued"
+    job_id = submitted["job_id"]
+
+    worker = make_worker()
+    await worker.drain()
+    job = await mcp_server.ocr_get_job(job_id)
+    assert job["status"] in ("completed", "completed_with_warnings")
+    # base_sha should be resolved (the auto-defaulted base branch).
+    resolved = job.get("resolved_shas", {})
+    assert resolved.get("base_sha") is not None
+    assert resolved.get("target_sha") is not None
