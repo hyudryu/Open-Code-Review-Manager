@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.schemas.projects import ORMModel
 
@@ -75,6 +75,20 @@ class JobOut(ORMModel):
     started_at: datetime | None
     completed_at: datetime | None
     findings_count: int = 0
+
+    @field_serializer(
+        "queued_at", "started_at", "completed_at", when_used="json"
+    )
+    def serialize_timestamps(self, value: datetime | None) -> str | None:
+        """SQLite returns naive UTC; keep the API's timezone contract explicit."""
+
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
 
 
 class JobMoveRequest(BaseModel):

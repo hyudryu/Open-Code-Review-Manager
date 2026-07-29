@@ -19,7 +19,7 @@ import os
 import re
 import shutil
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from app.core.config import Settings
@@ -41,6 +41,13 @@ from app.ocr.models import (
 )
 
 logger = get_logger(__name__)
+
+IS_WINDOWS = os.name == "nt"
+
+_NPM_CMD_SCRIPT_RE = re.compile(
+    r'"%dp0%\\(?P<script>node_modules\\[^"\r\n]+?\.js)"\s+%\*',
+    re.IGNORECASE,
+)
 
 #: Env overrides the current upstream resolver honors (resolver.go).
 KNOWN_ENV_OVERRIDES: tuple[str, ...] = (
@@ -190,7 +197,41 @@ class OCRAdapter:
             node = shutil.which("node")
             if node:
                 return [node, program, *argv[1:]]
+        if IS_WINDOWS and lower.endswith((".cmd", ".bat")):
+            npm_argv = self._windows_npm_shim_argv(program)
+            if npm_argv:
+                return [*npm_argv, *argv[1:]]
         return argv
+
+    @staticmethod
+    def _windows_npm_shim_argv(program: str) -> list[str] | None:
+        """Resolve a standard npm ``.cmd`` shim to its long-lived Node process.
+
+        A batch launch reports the ``cmd.exe`` wrapper PID rather than the OCR
+        runtime. Normalise the recognised npm shim so liveness, diagnostics,
+        and cancellation track the Node process directly; otherwise preserve
+        the original command.
+        """
+
+        shim = Path(program)
+        try:
+            content = shim.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        match = _NPM_CMD_SCRIPT_RE.search(content)
+        if match is None:
+            return None
+
+        relative = Path(*PureWindowsPath(match.group("script")).parts)
+        script = shim.parent / relative
+        if not script.is_file():
+            return None
+
+        bundled_node = shim.parent / "node.exe"
+        node = str(bundled_node) if bundled_node.is_file() else shutil.which("node")
+        if not node:
+            return None
+        return [node, str(script)]
 
     async def _run_probe(self, args: list[str]) -> tuple[int, str, str]:
         binary = self._binary
@@ -457,6 +498,9 @@ class OCRAdapter:
                 "OCR_CONFIG_PATH",
             }:
                 env.pop(key)
+        # Custom Python OCR executables and Python helpers must flush progress
+        # while stdout/stderr are connected to runner pipes.
+        env["PYTHONUNBUFFERED"] = "1"
         return env
 
     def build_job_environment(

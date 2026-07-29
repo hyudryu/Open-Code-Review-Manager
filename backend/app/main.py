@@ -30,6 +30,7 @@ from app.api.errors import install_error_handlers
 from app.api.security import CSRFMiddleware
 from app.api.v1 import api_router
 from app.core.config import Settings, get_settings
+from app.core.instance_lock import DataDirectoryLock
 from app.core.logging import configure_logging, get_logger
 from app.core.secrets import get_secret_store
 from app.db.migrate import run_migrations_async
@@ -58,58 +59,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        init_engine(settings.resolved_database_url)
-        await run_migrations_async(settings.resolved_database_url)
+        instance_lock = DataDirectoryLock(settings.resolved_data_dir)
+        instance_lock.acquire()
+        try:
+            init_engine(settings.resolved_database_url)
+            await run_migrations_async(settings.resolved_database_url)
 
-        # Seed the built-in Default profile (SPEC §8). Idempotent: adopts an
-        # existing "Default" if present, otherwise creates one. Must run after
-        # migrations so the ``is_system`` column exists.
-        from app.db.session import session_scope
-        from app.services.profiles import ProfileService
+            # Seed the built-in Default profile (SPEC §8). Idempotent: adopts an
+            # existing "Default" if present, otherwise creates one. Must run after
+            # migrations so the ``is_system`` column exists.
+            from app.db.session import session_scope
+            from app.services.profiles import ProfileService
 
-        async with session_scope() as session:
-            default = await ProfileService(session).ensure_default()
-        logger.info("default_profile_ensured", id=default.id, name=default.name)
+            async with session_scope() as session:
+                default = await ProfileService(session).ensure_default()
+            logger.info("default_profile_ensured", id=default.id, name=default.name)
 
-        git = get_git_service()
-        adapter = get_ocr_adapter()
-        secrets = get_secret_store()
+            git = get_git_service()
+            adapter = get_ocr_adapter()
+            secrets = get_secret_store()
 
-        async def webhook_dispatcher(session, job, event_type):
-            await WebhookService(session, settings=settings).dispatch_event(
-                session, job, event_type
+            async def webhook_dispatcher(session, job, event_type):
+                await WebhookService(session, settings=settings).dispatch_event(
+                    session, job, event_type
+                )
+
+            queue_worker = QueueWorker(
+                settings, git, adapter, secrets, webhook_dispatcher=webhook_dispatcher
             )
+            webhook_worker = WebhookWorker(settings)
+            app.state.queue_worker = queue_worker
+            app.state.webhook_worker = webhook_worker
+            set_current_worker(queue_worker)
+            set_current_webhook_worker(webhook_worker)
 
-        queue_worker = QueueWorker(
-            settings, git, adapter, secrets, webhook_dispatcher=webhook_dispatcher
-        )
-        webhook_worker = WebhookWorker(settings)
-        app.state.queue_worker = queue_worker
-        app.state.webhook_worker = webhook_worker
-        set_current_worker(queue_worker)
-        set_current_webhook_worker(webhook_worker)
+            recovery = await run_startup_recovery(settings, git)
+            if recovery["interrupted_jobs"] or recovery["worktrees_removed"]:
+                logger.info("startup_recovery_completed", **recovery)
 
-        recovery = await run_startup_recovery(settings, git)
-        if recovery["interrupted_jobs"] or recovery["worktrees_removed"]:
-            logger.info("startup_recovery_completed", **recovery)
+            await queue_worker.start()
+            await webhook_worker.start()
+            logger.info(
+                "backend_started",
+                host=settings.host,
+                port=settings.port,
+                data_dir=str(settings.resolved_data_dir),
+            )
+        except BaseException:
+            instance_lock.release()
+            raise
 
-        await queue_worker.start()
-        await webhook_worker.start()
-        logger.info(
-            "backend_started",
-            host=settings.host,
-            port=settings.port,
-            data_dir=str(settings.resolved_data_dir),
-        )
-
-        async with mcp_server.session_manager.run():
-            yield
-
-        await queue_worker.stop()
-        await webhook_worker.stop()
-        set_current_worker(None)
-        set_current_webhook_worker(None)
-        await dispose_engine()
+        try:
+            async with mcp_server.session_manager.run():
+                yield
+        finally:
+            try:
+                await queue_worker.stop()
+                await webhook_worker.stop()
+            finally:
+                set_current_worker(None)
+                set_current_webhook_worker(None)
+                try:
+                    await dispose_engine()
+                finally:
+                    instance_lock.release()
 
     app = FastAPI(
         title="OpenCodeReview Manager",
