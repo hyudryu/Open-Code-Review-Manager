@@ -30,6 +30,7 @@ from app.queue.service import QueueService
 from app.services.deps import ServiceBase
 from app.services.errors import (
     ConflictError,
+    DefaultProfileNotConfiguredError,
     NotFoundError,
     ValidationFailedError,
 )
@@ -311,6 +312,46 @@ class JobService(ServiceBase):
             model = await self.session.get(models.Model, profile.model_id)
         return provider, model
 
+    async def _resolve_profile(
+        self, profile_id: str | None
+    ) -> models.ReviewProfile | None:
+        """Resolve the profile for a review, falling back to the system Default.
+
+        When ``profile_id`` is omitted, the built-in Default profile is used
+        (seeded at startup). An explicit ``profile_id`` that doesn't exist is a
+        hard ``not_found`` error.
+        """
+
+        if profile_id:
+            profile = await self.session.get(models.ReviewProfile, profile_id)
+            if profile is None:
+                raise NotFoundError("Review profile", profile_id)
+            return profile
+        from app.services.profiles import ProfileService
+
+        return await ProfileService(self.session).get_default()
+
+    @staticmethod
+    def _assert_default_configured(profile: models.ReviewProfile | None) -> None:
+        """Reject queuing when the review resolves to an unconfigured Default.
+
+        The system Default is the only profile that may be used without an
+        explicit selection, so it's the only one we gate on configuration. Any
+        other profile (explicitly chosen) is allowed as-is, matching prior
+        behavior where "no provider" means OCR's own default config.
+        """
+
+        if profile is not None and profile.is_system:
+            if not profile.provider_profile_id or not profile.model_id:
+                missing = []
+                if not profile.provider_profile_id:
+                    missing.append("a provider")
+                if not profile.model_id:
+                    missing.append("a model")
+                raise DefaultProfileNotConfiguredError(
+                    detail="The Default profile is missing " + " and ".join(missing) + "."
+                )
+
     async def create(
         self,
         *,
@@ -341,17 +382,19 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
-        profile = None
-        if profile_id:
-            profile = await self.session.get(models.ReviewProfile, profile_id)
-            if profile is None:
-                raise NotFoundError("Review profile", profile_id)
+        # Explicit selection → hard not_found if absent; omitted → system Default.
+        profile = await self._resolve_profile(profile_id)
 
         if mode == "range":
             validate_git_ref(base_ref or "")
             validate_git_ref(target_ref or "")
         if mode == "commit":
             validate_git_ref(commit_ref or "")
+
+        # The Default profile must be configured (provider + model) before a
+        # review that resolves to it can be queued. Checked after the cheap
+        # request-shape validations but before any worktree/argv work.
+        self._assert_default_configured(profile)
 
         if mode == "pr":
             base_ref, target_ref, shas = await self._resolve_pr(
@@ -565,9 +608,10 @@ class JobService(ServiceBase):
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
-        profile = None
-        if profile_id:
-            profile = await self.session.get(models.ReviewProfile, profile_id)
+        # Same resolution + configuration rule as submit: omitted → Default,
+        # and an unconfigured Default is rejected up front.
+        profile = await self._resolve_profile(profile_id)
+        self._assert_default_configured(profile)
         if mode == "pr":
             base_ref, target_ref, shas = await self._resolve_pr(
                 project, pr_number=pr_number, base_ref=base_ref

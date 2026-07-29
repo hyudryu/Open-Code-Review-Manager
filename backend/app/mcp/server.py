@@ -483,9 +483,13 @@ def build_mcp_server() -> FastMCP:
             "Submit and manage OpenCodeReview jobs. A review target must be a "
             "registered project — if ocr_submit_review or ocr_preview_review "
             "returns not_found for a project id, call ocr_add_project with the "
-            "repository path to register it, then retry. Submission is async: "
-            "submit, then call ocr_get_job with wait_for_terminal=true to block "
-            "until completion, or read ocr://jobs/{id}/result."
+            "repository path to register it, then retry. When profile_id is "
+            "omitted the built-in Default profile is used; if that returns "
+            "default_profile_not_configured, the user must set a provider and "
+            "model on the Default profile (via the UI) before reviews can run. "
+            "Submission is async: submit, then call ocr_get_job with "
+            "wait_for_terminal=true to block until completion, or read "
+            "ocr://jobs/{id}/result."
         ),
         streamable_http_path="/",
         json_response=True,
@@ -512,11 +516,20 @@ def build_mcp_server() -> FastMCP:
     )
     mcp.tool(
         name="ocr_preview_review",
-        description="Preview included/excluded files without using the LLM.",
+        description=(
+            "Preview included/excluded files without using the LLM. Omit "
+            "profile_id to use the built-in Default profile, which must have a "
+            "provider and model set."
+        ),
     )(ocr_preview_review)
     mcp.tool(
         name="ocr_submit_review",
-        description="Submit a review job asynchronously; returns a durable job id immediately.",
+        description=(
+            "Submit a review job asynchronously; returns a durable job id "
+            "immediately. Omit profile_id to use the built-in Default profile, "
+            "which must have a provider and model set; otherwise it returns a "
+            "default_profile_not_configured error."
+        ),
     )(ocr_submit_review)
     mcp.tool(
         name="ocr_get_job",

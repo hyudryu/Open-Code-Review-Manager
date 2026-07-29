@@ -164,6 +164,30 @@ async def client(settings, fake_ocr, runtime, repo):
         ) as c:
             response = await c.get("/api/v1/health")
             assert response.status_code == 200
+            # Bind a provider + model to the seeded system Default profile so
+            # jobs submitted without a profile_id (the fallback) can run.
+            h = {"X-OCR-CSRF": c.cookies.get("ocrcc_csrf")}
+            r = await c.post(
+                "/api/v1/providers",
+                json={"name": "DefaultProv", "protocol": "openai"},
+                headers=h,
+            )
+            provider_id = r.json()["id"]
+            r = await c.post(
+                f"/api/v1/providers/{provider_id}/models",
+                json={"model_id": "default-model"},
+                headers=h,
+            )
+            model_id = r.json()["id"]
+            default = next(
+                p for p in (await c.get("/api/v1/review-profiles")).json()
+                if p["is_system"]
+            )
+            await c.patch(
+                f"/api/v1/review-profiles/{default['id']}",
+                json={"provider_profile_id": provider_id, "model_id": model_id},
+                headers=h,
+            )
             yield c
     finally:
         stop.set()

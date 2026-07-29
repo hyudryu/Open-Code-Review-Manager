@@ -177,4 +177,5 @@ class ProfileOut(ORMModel):
     tools_file_path: str | None
     background_template: str | None
     additional_arguments: str | None
+    is_system: bool = False
     created_at: datetime

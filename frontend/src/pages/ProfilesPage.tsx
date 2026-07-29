@@ -312,6 +312,9 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           </h2>
           {profileId ? (
             <div className={layout.row}>
+              {profile.data?.is_system ? (
+                <Badge tone="accent">Default</Badge>
+              ) : null}
               <Button
                 variant="tertiary"
                 size="small"
@@ -324,9 +327,11 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
               >
                 Duplicate
               </Button>
-              <Button variant="destructive-quiet" size="small" onClick={() => setDeleteOpen(true)}>
-                Delete
-              </Button>
+              {profile.data?.is_system ? null : (
+                <Button variant="destructive-quiet" size="small" onClick={() => setDeleteOpen(true)}>
+                  Delete
+                </Button>
+              )}
             </div>
           ) : null}
         </div>

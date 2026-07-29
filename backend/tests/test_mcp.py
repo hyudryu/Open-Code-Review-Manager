@@ -216,3 +216,87 @@ async def test_add_project_rejects_non_repo(db, runtime, tmp_path) -> None:
 
     error = await mcp_server.ocr_add_project(absolute_path=str(not_a_repo))
     assert error["error"]["code"] == "validation_failed"
+
+
+async def _configure_default_profile(provider_id: str, model_id: str) -> None:
+    """Seed + configure the system Default profile for MCP tests (no lifespan)."""
+
+    async with session_scope() as session:
+        service = ProfileService(session)
+        default = await service.ensure_default()
+        default.provider_profile_id = provider_id
+        default.model_id = model_id
+
+
+async def test_submit_without_profile_rejects_unconfigured_default(
+    db, runtime, make_repo, fake_ocr
+) -> None:
+    """When profile_id is omitted and the Default profile isn't configured, the
+    agent gets a structured default_profile_not_configured error it can surface."""
+
+    repo = make_repo("agent_repo")
+    async with session_scope() as session:
+        await ProfileService(session).ensure_default()  # unconfigured Default
+
+    added = await mcp_server.ocr_add_project(absolute_path=str(repo))
+    project_id = added["id"]
+
+    error = await mcp_server.ocr_submit_review(
+        project_id=project_id, mode="commit", commit_ref="HEAD"
+    )
+    assert error["error"]["code"] == "default_profile_not_configured"
+    assert "provider" in error["error"]["detail"]
+    assert error["error"]["next_action"]
+
+    # Preview is gated the same way.
+    error = await mcp_server.ocr_preview_review(
+        project_id=project_id, mode="commit", commit_ref="HEAD"
+    )
+    assert error["error"]["code"] == "default_profile_not_configured"
+
+
+async def test_submit_without_profile_uses_configured_default(
+    db, runtime, make_repo, make_worker, fake_ocr
+) -> None:
+    """Once the Default profile is configured, omitting profile_id queues a
+    review that runs to completion — the happy path the agent relies on."""
+
+    repo = make_repo("agent_repo2")
+    async with session_scope() as session:
+        providers = ProviderService(session)
+        provider = await providers.create(
+            name="DefProv", protocol="openai", base_url="https://api.example.test/v1"
+        )
+        model = await providers.add_manual_model(provider.id, model_id="def-model")
+        provider_id, model_pk = provider.id, model.id
+    await _configure_default_profile(provider_id, model_pk)
+
+    added = await mcp_server.ocr_add_project(absolute_path=str(repo))
+    project_id = added["id"]
+
+    submitted = await mcp_server.ocr_submit_review(
+        project_id=project_id, mode="commit", commit_ref="HEAD"
+    )
+    assert submitted["status"] == "queued"
+    job_id = submitted["job_id"]
+
+    worker = make_worker()
+    await worker.drain()
+
+    job = await mcp_server.ocr_get_job(job_id)
+    assert job["status"] == "completed"
+    findings = await mcp_server.ocr_get_findings(job_id)
+    assert findings["total"] >= 1
+
+
+async def test_default_profile_not_deletable(db, runtime) -> None:
+    """The system Default profile is protected from deletion."""
+
+    async with session_scope() as session:
+        service = ProfileService(session)
+        default = await service.ensure_default()
+        default_id = default.id
+        from app.services.errors import ConflictError
+
+        with pytest.raises(ConflictError):
+            await service.delete(default_id)

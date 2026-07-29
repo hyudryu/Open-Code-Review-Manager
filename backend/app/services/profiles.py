@@ -46,6 +46,47 @@ class ProfileService(ServiceBase):
             raise NotFoundError("Review profile", profile_id)
         return profile
 
+    async def get_default(self) -> models.ReviewProfile | None:
+        """Return the built-in system Default profile, or ``None`` if absent.
+
+        Keyed on ``is_system`` (not the name) so the fallback survives a
+        rename of the Default profile.
+        """
+
+        result = await self.session.execute(
+            select(models.ReviewProfile).where(models.ReviewProfile.is_system.is_(True))
+        )
+        return result.scalar_one_or_none()
+
+    async def ensure_default(self) -> models.ReviewProfile:
+        """Idempotently guarantee the built-in Default profile exists.
+
+        If a profile named "Default" already exists, it is flagged
+        ``is_system = True`` (its other configuration is left untouched, so a
+        user who already configured a provider/model keeps it). Otherwise a
+        fresh, empty Default is seeded. Safe to call on every startup.
+        """
+
+        result = await self.session.execute(
+            select(models.ReviewProfile).where(models.ReviewProfile.name == "Default")
+        )
+        profile = result.scalar_one_or_none()
+        if profile is None:
+            profile = models.ReviewProfile(
+                name="Default",
+                is_system=True,
+                description=(
+                    "Built-in default profile. Used automatically when a review "
+                    "is submitted without a profile selected. Set a provider and "
+                    "model to enable reviews."
+                ),
+            )
+            self.session.add(profile)
+        else:
+            profile.is_system = True
+        await self.session.flush()
+        return profile
+
     async def _validate(self, fields: dict[str, Any]) -> None:
         plan_mode = fields.get("plan_mode")
         if plan_mode is not None and plan_mode not in models.PLAN_MODES:
@@ -105,6 +146,11 @@ class ProfileService(ServiceBase):
 
     async def delete(self, profile_id: str) -> None:
         profile = await self.get(profile_id)
+        if profile.is_system:
+            raise ConflictError(
+                "The built-in Default profile cannot be deleted.",
+                next_action="It's required as the fallback when no profile is selected.",
+            )
         await self.session.delete(profile)
         await self.session.flush()
 

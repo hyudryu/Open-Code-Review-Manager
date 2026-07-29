@@ -157,6 +157,7 @@ export interface ReviewProfile {
   tools_file_path: string | null;
   background_template: string | null;
   additional_arguments: string | null;
+  is_system: boolean;
   created_at: string;
 }
 

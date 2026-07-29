@@ -219,6 +219,9 @@ class ReviewProfile(TimestampMixin, Base):
     tools_file_path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     background_template: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     additional_arguments: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    is_system: Mapped[bool] = mapped_column(
+        sa.Boolean, default=False, server_default=sa.false(), nullable=False
+    )
 
 
 class ReviewJob(Base):
