@@ -694,7 +694,19 @@ export function useQueue(options?: { refetchInterval?: number | false }) {
   return useQuery({
     queryKey: qk.queue,
     queryFn: () => api.get<QueueState>("/api/v1/queue"),
-    refetchInterval: options?.refetchInterval ?? 10_000,
+    // Poll faster when jobs are in transient states (cancelling, preparing,
+    // running) so the UI catches transitions quickly.
+    refetchInterval: (query) => {
+      if (options?.refetchInterval !== undefined) return options.refetchInterval;
+      const jobs = query.state.data?.jobs ?? [];
+      const hasPending = jobs.some(
+        (j) =>
+          j.status === "cancelling" ||
+          j.status === "preparing" ||
+          j.status === "running",
+      );
+      return hasPending ? 2_000 : 8_000;
+    },
   });
 }
 

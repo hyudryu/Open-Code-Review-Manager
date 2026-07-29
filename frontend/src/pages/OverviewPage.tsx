@@ -5,12 +5,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCancelJob,
   useJobs,
+  useModels,
   useOcrUpdateStatus,
+  useProfiles,
   useProjects,
   useProviders,
   useQueue,
   useSystemInfo,
   useSystemOcr,
+  useUpdateProfile,
 } from "../api/hooks";
 import { useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
@@ -18,7 +21,7 @@ import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui
 import { IconFolder, IconPlus } from "../components/ui/icons";
 import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
-import { TERMINAL_STATUSES, type Job } from "../types";
+import { TERMINAL_STATUSES, type Job, type Provider, type ReviewProfile } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
@@ -134,12 +137,87 @@ function LiveLogPane({ jobId }: { jobId: string }) {
   );
 }
 
+/** Provider row with model selector. Reads/writes the Default profile's model. */
+function ProviderRow({
+  provider,
+  profiles,
+}: {
+  provider: Provider;
+  profiles: ReviewProfile[];
+}) {
+  const models = useModels(provider.id);
+  const updateProfile = useUpdateProfile();
+
+  // The Default (system) profile that uses this provider.
+  const profile = profiles.find(
+    (p) => p.is_system && p.provider_profile_id === provider.id,
+  );
+  const selectedModelId = profile?.model_id ?? "";
+
+  const isConfigured =
+    provider.enabled && (provider.has_credential || provider.base_url === "");
+
+  return (
+    <div className={styles.compactRow}>
+      <div className={styles.compactRowMain}>
+        <span className={styles.compactRowTitle}>{provider.name}</span>
+        <span className={styles.compactRowMeta}>
+          {provider.protocol} · {provider.base_url || "no endpoint"}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {profile && (models.data ?? []).length > 0 ? (
+          <select
+            aria-label={`Model for ${provider.name}`}
+            value={selectedModelId}
+            disabled={updateProfile.isPending}
+            onChange={(e) => {
+              updateProfile.mutate({
+                id: profile.id,
+                name: profile.name,
+                model_id: e.target.value || null,
+              });
+            }}
+            style={{
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px solid var(--border-strong)",
+              background: "var(--bg-surface)",
+              color: "var(--text-primary)",
+              padding: "2px 6px",
+              maxWidth: 200,
+            }}
+          >
+            <option value="">Select model…</option>
+            {(models.data ?? []).map((m) => (
+              <option key={m.id} value={m.model_id}>
+                {m.display_name ?? m.model_id}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <StatusDot
+          tone={!provider.enabled ? "muted" : isConfigured ? "ok" : "warn"}
+          label={
+            !provider.enabled
+              ? "disabled"
+              : isConfigured
+                ? "configured"
+                : "no key"
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
-  const queue = useQueue({ refetchInterval: 8_000 });
+  const queue = useQueue();
   const jobs = useJobs({ limit: 50 });
   const projects = useProjects();
   const providers = useProviders();
+  const profiles = useProfiles();
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
@@ -456,24 +534,7 @@ export function OverviewPage() {
                 </p>
               ) : (
                 (providers.data ?? []).map((p) => (
-                  <div key={p.id} className={styles.compactRow}>
-                    <div className={styles.compactRowMain}>
-                      <span className={styles.compactRowTitle}>{p.name}</span>
-                      <span className={styles.compactRowMeta}>
-                        {p.protocol} · {p.base_url || "no endpoint"}
-                      </span>
-                    </div>
-                    <StatusDot
-                      tone={!p.enabled ? "muted" : p.has_credential || p.base_url === "" ? "ok" : "warn"}
-                      label={
-                        !p.enabled
-                          ? "disabled"
-                          : p.has_credential || p.protocol
-                            ? "configured"
-                            : "no key"
-                      }
-                    />
-                  </div>
+                  <ProviderRow key={p.id} provider={p} profiles={profiles.data ?? []} />
                 ))
               )}
             </div>
