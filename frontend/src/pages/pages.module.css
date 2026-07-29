@@ -95,12 +95,31 @@
   height: 48px;
 }
 
-.trendBar {
+.trendBarCol {
   flex: 1;
+  min-width: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+.trendBar {
+  width: 100%;
   min-width: 4px;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
   opacity: 0.85;
+}
+
+.trendBarCount {
+  font: var(--text-small);
+  font-size: 9px;
+  color: var(--text-tertiary);
+  line-height: 1;
+  margin-top: 2px;
+  min-height: 10px;
 }
 
 .trendBarEmpty {

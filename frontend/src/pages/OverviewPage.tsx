@@ -51,22 +51,30 @@ function FindingsTrend({ jobs }: { jobs: Job[] }) {
   }, [jobs]);
 
   const max = Math.max(1, ...days.map((d) => d.count));
+  const total = days.reduce((s, d) => s + d.count, 0);
   return (
     <div>
       <div className={styles.trend} role="img"
-        aria-label={`Findings over the last 14 days, peak ${max}`}>
+        aria-label={`${total} findings over the last 14 days, peak ${max}`}>
         {days.map((day, i) => (
           <div
             key={i}
-            className={`${styles.trendBar} ${day.count === 0 ? styles.trendBarEmpty : ""}`}
-            style={{ height: `${Math.max(6, (day.count / max) * 100)}%` }}
+            className={styles.trendBarCol}
             title={`${day.count} findings`}
-          />
+          >
+            <div
+              className={`${styles.trendBar} ${day.count === 0 ? styles.trendBarEmpty : ""}`}
+              style={{ height: `${Math.max(6, (day.count / max) * 100)}%` }}
+            />
+            <span className={styles.trendBarCount}>
+              {day.count > 0 ? day.count : ""}
+            </span>
+          </div>
         ))}
       </div>
       <div className={styles.trendLegend}>
         <span>{days[0]?.label}</span>
-        <span>Findings · last 14 days</span>
+        <span>{total} findings · last 14 days</span>
         <span>{days[days.length - 1]?.label}</span>
       </div>
     </div>
