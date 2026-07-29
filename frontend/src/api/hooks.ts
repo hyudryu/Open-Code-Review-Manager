@@ -9,6 +9,7 @@ import {
 import { api } from "./client";
 import type {
   Branch,
+  DirBrowse,
   Finding,
   Folder,
   FolderScan,
@@ -42,6 +43,7 @@ export const qk = {
   systemInfo: ["system", "info"] as const,
   systemOcr: ["system", "ocr"] as const,
   systemMcp: ["system", "mcp"] as const,
+  systemBrowse: (path: string) => ["system", "browse", path] as const,
   settings: ["settings"] as const,
   folders: ["folders"] as const,
   projects: ["projects"] as const,
@@ -108,6 +110,24 @@ export function useSystemOcr(options?: Partial<UseQueryOptions<OCRStatus>>) {
     queryKey: qk.systemOcr,
     queryFn: () => api.get<OCRStatus>("/api/v1/system/ocr"),
     staleTime: 60_000,
+    ...options,
+  });
+}
+
+/**
+ * Server-backed directory browser for the folder picker. A browser cannot
+ * read absolute filesystem paths from a file input, so the picker navigates
+ * the backend host's filesystem instead. Pass `path = ""` for the home dir.
+ */
+export function useBrowseDir(
+  path: string,
+  options?: Partial<UseQueryOptions<DirBrowse>>,
+) {
+  return useQuery({
+    queryKey: qk.systemBrowse(path),
+    queryFn: ({ signal }) => api.get<DirBrowse>("/api/v1/system/browse", { path }, signal),
+    staleTime: 0,
+    retry: false,
     ...options,
   });
 }

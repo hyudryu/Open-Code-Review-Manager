@@ -452,6 +452,20 @@ export interface SystemInfo {
   session_storage_bytes: number;
 }
 
+// --- directory browser (server-backed folder picker) ------------------------
+
+export interface DirEntry {
+  name: string;
+  path: string;
+}
+
+export interface DirBrowse {
+  path: string;
+  parent: string | null;
+  entries: DirEntry[];
+  truncated: boolean;
+}
+
 export type SettingsMap = Record<string, unknown> & {
   "queue.global_concurrency"?: number;
   "queue.per_project_concurrency"?: number;
