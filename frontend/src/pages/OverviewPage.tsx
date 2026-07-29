@@ -3,6 +3,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  useCancelJob,
   useJobs,
   useOcrUpdateStatus,
   useProjects,
@@ -13,7 +14,7 @@ import {
 } from "../api/hooks";
 import { useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
-import { Button, EmptyState, Skeleton, StatusDot } from "../components/ui";
+import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui";
 import { IconFolder, IconPlus } from "../components/ui/icons";
 import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
@@ -136,6 +137,7 @@ export function OverviewPage() {
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
   const info = useSystemInfo();
+  const cancelJob = useCancelJob();
 
   const activeJobs = useMemo(
     () =>
@@ -245,6 +247,21 @@ export function OverviewPage() {
                           label={STATUS_LABEL[job.status]}
                           pulse
                         />
+                        <Button
+                          variant="destructive-quiet"
+                          size="small"
+                          disabled={cancelJob.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancelJob
+                              .mutateAsync({ id: job.id })
+                              .catch((err: Error) =>
+                                toast.error("Cancel failed", err.message),
+                              );
+                          }}
+                        >
+                          Stop
+                        </Button>
                       </div>
                     </div>
                     <p className={layout.small}>{activeReviewTarget(job)}</p>
