@@ -130,6 +130,122 @@ function Histogram({
   );
 }
 
+interface TokenSlice {
+  key: string;
+  label: string;
+  value: number;
+  color: string;
+}
+
+/** Pie chart for token type breakdown using CSS conic-gradient. */
+function TokenPieChart({ jobs }: { jobs: Job[] }) {
+  const slices = useMemo<TokenSlice[]>(() => {
+    const input = jobs.reduce((s, j) => s + (j.result_summary_json?.input_tokens ?? 0), 0);
+    const output = jobs.reduce((s, j) => s + (j.result_summary_json?.output_tokens ?? 0), 0);
+    const cacheRead = jobs.reduce((s, j) => s + (j.result_summary_json?.cache_read_tokens ?? 0), 0);
+    const cacheWrite = jobs.reduce((s, j) => s + (j.result_summary_json?.cache_write_tokens ?? 0), 0);
+    return [
+      { key: "input", label: "Input", value: input, color: "var(--accent)" },
+      { key: "output", label: "Output", value: output, color: "var(--success)" },
+      { key: "cacheRead", label: "Cache read", value: cacheRead, color: "var(--warning)" },
+      { key: "cacheWrite", label: "Cache write", value: cacheWrite, color: "#a855f7" },
+    ];
+  }, [jobs]);
+
+  const total = slices.reduce((s, sl) => s + sl.value, 0);
+
+  if (total === 0) {
+    return <p className={layout.small}>No token data in this range.</p>;
+  }
+
+  // Build conic-gradient string.
+  let cumulative = 0;
+  const stops = slices
+    .filter((sl) => sl.value > 0)
+    .map((sl) => {
+      const start = (cumulative / total) * 100;
+      cumulative += sl.value;
+      const end = (cumulative / total) * 100;
+      return `${sl.color} ${start}% ${end}%`;
+    })
+    .join(", ");
+
+  return (
+    <div className={styles.usagePieContainer}>
+      <div
+        className={styles.usagePie}
+        style={{ background: `conic-gradient(${stops})` }}
+        role="img"
+        aria-label={`Token breakdown: ${slices.map((s) => `${s.label} ${formatTokens(s.value)}`).join(", ")}`}
+      />
+      <div className={styles.usagePieLegend}>
+        {slices.map((sl) => (
+          <div key={sl.key} className={styles.usagePieLegendItem}>
+            <span className={styles.usagePieLegendDot} style={{ background: sl.color }} />
+            <span className={styles.usagePieLegendLabel}>{sl.label}</span>
+            <span className={styles.usagePieLegendValue}>
+              {formatTokens(sl.value)}
+              <span className={styles.usagePieLegendPct}>
+                {" "}{total > 0 ? Math.round((sl.value / total) * 100) : 0}%
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface ModelUsage {
+  model: string;
+  tokens: number;
+  reviews: number;
+}
+
+/** Horizontal bar chart of token usage per model. */
+function ModelBreakdown({ jobs }: { jobs: Job[] }) {
+  const models = useMemo<ModelUsage[]>(() => {
+    const byModel = new Map<string, ModelUsage>();
+    for (const job of jobs) {
+      const modelId =
+        (job.configuration_snapshot_json?.model as Record<string, string> | undefined)?.model_id ??
+        "Unknown";
+      const existing = byModel.get(modelId) ?? { model: modelId, tokens: 0, reviews: 0 };
+      existing.tokens += job.result_summary_json?.total_tokens ?? 0;
+      existing.reviews += 1;
+      byModel.set(modelId, existing);
+    }
+    return Array.from(byModel.values()).sort((a, b) => b.tokens - a.tokens);
+  }, [jobs]);
+
+  const maxTokens = Math.max(1, ...models.map((m) => m.tokens));
+
+  if (models.length === 0) {
+    return <p className={layout.small}>No model data in this range.</p>;
+  }
+
+  return (
+    <div className={styles.usageModelBars}>
+      {models.map((m) => (
+        <div key={m.model} className={styles.usageModelRow}>
+          <div className={styles.usageModelInfo}>
+            <span className={styles.usageModelName}>{m.model}</span>
+            <span className={styles.usageModelStats}>
+              {formatTokens(m.tokens)} tokens · {m.reviews} {m.reviews === 1 ? "review" : "reviews"}
+            </span>
+          </div>
+          <div className={styles.usageModelBarTrack}>
+            <div
+              className={styles.usageModelBarFill}
+              style={{ width: `${Math.max(2, (m.tokens / maxTokens) * 100)}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function UsagePage() {
   const jobsQuery = useJobs({ limit: 200 });
 
@@ -232,17 +348,26 @@ export function UsagePage() {
           <Skeleton height={200} />
         </div>
       ) : (
-        <div className={styles.usageCharts}>
-          <div className={styles.usageChartCard}>
-            <h3 className={styles.usageChartTitle}>Findings per day</h3>
-            <Histogram
-              buckets={buckets}
-              metric="findings"
-              color="var(--accent)"
-              formatValue={(n) => `${n} ${n === 1 ? "finding" : "findings"}`}
-            />
+        <>
+          {/* Row 1: Findings histogram + Token breakdown pie */}
+          <div className={styles.usageCharts}>
+            <div className={styles.usageChartCard}>
+              <h3 className={styles.usageChartTitle}>Findings per day</h3>
+              <Histogram
+                buckets={buckets}
+                metric="findings"
+                color="var(--accent)"
+                formatValue={(n) => `${n} ${n === 1 ? "finding" : "findings"}`}
+              />
+            </div>
+            <div className={styles.usageChartCard}>
+              <h3 className={styles.usageChartTitle}>Token breakdown</h3>
+              <TokenPieChart jobs={terminalJobs} />
+            </div>
           </div>
-          <div className={styles.usageChartCard}>
+
+          {/* Row 2: Tokens per day (full width) */}
+          <div className={styles.usageChartCard} style={{ marginBottom: 16 }}>
             <h3 className={styles.usageChartTitle}>Tokens per day</h3>
             <Histogram
               buckets={buckets}
@@ -251,7 +376,13 @@ export function UsagePage() {
               formatValue={(n) => `${formatTokens(n)} tokens`}
             />
           </div>
-        </div>
+
+          {/* Row 3: Model usage breakdown */}
+          <div className={styles.usageChartCard}>
+            <h3 className={styles.usageChartTitle}>Model usage breakdown</h3>
+            <ModelBreakdown jobs={terminalJobs} />
+          </div>
+        </>
       )}
     </>
   );
