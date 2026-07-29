@@ -2,19 +2,26 @@
 
 A local-first web control plane for [Alibaba OpenCodeReview](https://github.com/alibaba/open-code-review) (`ocr`).
 It manages projects, review profiles, a durable review queue, live job progress,
-structured findings, and integrations (MCP server, signed webhooks) — all from
-one local app that never sends your code or credentials anywhere except the
-LLM endpoint you configure.
+structured findings, usage analytics, and integrations (MCP server, signed
+webhooks) — all from one local app that never sends your code or credentials
+anywhere except the LLM endpoint you configure.
 
 - **Backend** — Python 3.12, FastAPI, SQLAlchemy 2 (async, SQLite WAL), Alembic
 - **Frontend** — React 18, TypeScript strict, Vite, custom design system
 - **Engine** — the `ocr` CLI runs your reviews in isolated worktrees
 
-## Screenshots
+## Features
 
-> Placeholder — capture Overview, Projects, New Review, Queue, Running Job,
-> Results, Provider Settings (light + dark) into `docs/screenshots/` and link
-> them here.
+- **Project management** — register git repos, browse branches, start reviews
+- **Review queue** — durable, priority-ordered, concurrency-limited, with drag-and-drop reordering
+- **Live progress** — SSE-streamed logs and file-by-file progress for running reviews
+- **Structured findings** — color-coded by severity (HIGH/MEDIUM/LOW), with code snippets, reasoning, and triage states
+- **Usage analytics** — token consumption histograms, pie chart breakdowns (input/output/cache), per-model usage bars, with time range filters
+- **Provider management** — configure LLM endpoints, discover models, test connections
+- **Review profiles** — reusable presets for provider, model, concurrency, and OCR settings
+- **MCP server** — lets AI agents submit and monitor code reviews programmatically
+- **Webhooks** — signed event delivery for CI/CD integration
+- **Stale job recovery** — runtime watchdog reaper detects and cleans up stuck jobs
 
 ## Install
 
@@ -69,10 +76,10 @@ Starts the backend with `uvicorn --reload` on :8372 and the Vite dev server on
 :5173 (proxying `/api` and `/mcp`). Tests:
 
 ```bash
-# backend (159 tests)
+# backend (252 tests)
 backend/.venv/Scripts/python.exe -m pytest backend/tests -q   # .venv/bin/python on POSIX
 
-# frontend (typecheck + 15 vitest)
+# frontend (typecheck + 52 vitest)
 cd frontend && npm run build && npm test
 ```
 
@@ -80,10 +87,10 @@ cd frontend && npm run build && npm test
 
 ```text
 backend/    FastAPI app: core (config/secrets/security), db (models +
-            Alembic), git service, OCR adapter, queue engine, services,
-            REST API + SSE, webhooks, MCP server
-frontend/   React SPA: design system, app shell, all screens
-patches/    open-code-review planning-controls patch set (+ README)
+            Alembic), git service, OCR adapter, queue engine (with stale-job
+            reaper), services, REST API + SSE, webhooks, MCP server
+frontend/   React SPA: design system, app shell, all screens (Overview,
+            Projects, Queue, Reviews, Usage, Providers, Profiles, Settings)
 scripts/    dev.sh/.ps1 (dev servers) · start.sh/.ps1 (one-command production)
 docs/       SPEC.md (authoritative spec), ARCHITECTURE.md, API.md, MCP.md,
             WEBHOOKS.md, VERIFICATION.md
@@ -96,7 +103,6 @@ docs/       SPEC.md (authoritative spec), ARCHITECTURE.md, API.md, MCP.md,
 - [docs/MCP.md](docs/MCP.md) — MCP tools/resources/prompts + client configs
 - [docs/WEBHOOKS.md](docs/WEBHOOKS.md) — payload reference, signing, verification examples
 - [docs/VERIFICATION.md](docs/VERIFICATION.md) — acceptance criteria → tests mapping
-- [patches/open-code-review/README.md](patches/open-code-review/README.md) — planning-controls patch
 
 ## License
 

@@ -8,8 +8,7 @@ environments and configs, and parses results and session JSONL.
 When the binary is absent, every entry point degrades to a structured
 ``"ocr_not_found"`` status — never an exception escaping into callers.
 
-Grounding: ``patches/open-code-review/NOTES.md`` (verified against the
-upstream Go source).
+Grounding: verified against the upstream ocr Go source.
 """
 
 from __future__ import annotations
