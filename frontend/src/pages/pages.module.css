@@ -886,3 +886,61 @@
   opacity: 0.8;
   transition: width var(--dur-hover) var(--ease);
 }
+
+/* Stacked segments in model breakdown bars */
+.usageModelBarSegment {
+  height: 100%;
+  opacity: 0.85;
+  transition: width var(--dur-hover) var(--ease);
+}
+
+.usageModelBarSegment:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.usageModelBarSegment:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.usageModelBarSegment:only-child {
+  border-radius: 4px;
+}
+
+/* Model breakdown legend */
+.usageModelLegend {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.usageModelLegendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-small);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* Chart card header with title + filter */
+.usageChartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.usageChartHeader > h3 {
+  margin: 0;
+}
+
+.usageModelSelect {
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 2px 6px;
+  max-width: 200px;
+}

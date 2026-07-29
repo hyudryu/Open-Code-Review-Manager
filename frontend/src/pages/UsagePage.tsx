@@ -138,19 +138,30 @@ interface TokenSlice {
 }
 
 /** Pie chart for token type breakdown using CSS conic-gradient. */
-function TokenPieChart({ jobs }: { jobs: Job[] }) {
+function TokenPieChart({ jobs, modelFilter }: { jobs: Job[]; modelFilter: string }) {
+  const filteredJobs = useMemo(
+    () =>
+      modelFilter === "all"
+        ? jobs
+        : jobs.filter(
+            (j) =>
+              (j.configuration_snapshot_json?.model as Record<string, string> | undefined)?.model_id === modelFilter,
+          ),
+    [jobs, modelFilter],
+  );
+
   const slices = useMemo<TokenSlice[]>(() => {
-    const input = jobs.reduce((s, j) => s + (j.result_summary_json?.input_tokens ?? 0), 0);
-    const output = jobs.reduce((s, j) => s + (j.result_summary_json?.output_tokens ?? 0), 0);
-    const cacheRead = jobs.reduce((s, j) => s + (j.result_summary_json?.cache_read_tokens ?? 0), 0);
-    const cacheWrite = jobs.reduce((s, j) => s + (j.result_summary_json?.cache_write_tokens ?? 0), 0);
+    const input = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.input_tokens ?? 0), 0);
+    const output = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.output_tokens ?? 0), 0);
+    const cacheRead = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_read_tokens ?? 0), 0);
+    const cacheWrite = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_write_tokens ?? 0), 0);
     return [
       { key: "input", label: "Input", value: input, color: "var(--accent)" },
       { key: "output", label: "Output", value: output, color: "var(--success)" },
       { key: "cacheRead", label: "Cache read", value: cacheRead, color: "var(--warning)" },
       { key: "cacheWrite", label: "Cache write", value: cacheWrite, color: "#a855f7" },
     ];
-  }, [jobs]);
+  }, [filteredJobs]);
 
   const total = slices.reduce((s, sl) => s + sl.value, 0);
 
@@ -200,9 +211,13 @@ interface ModelUsage {
   model: string;
   tokens: number;
   reviews: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
 }
 
-/** Horizontal bar chart of token usage per model. */
+/** Horizontal stacked bar chart of token usage per model, segmented by token type. */
 function ModelBreakdown({ jobs }: { jobs: Job[] }) {
   const models = useMemo<ModelUsage[]>(() => {
     const byModel = new Map<string, ModelUsage>();
@@ -210,9 +225,16 @@ function ModelBreakdown({ jobs }: { jobs: Job[] }) {
       const modelId =
         (job.configuration_snapshot_json?.model as Record<string, string> | undefined)?.model_id ??
         "Unknown";
-      const existing = byModel.get(modelId) ?? { model: modelId, tokens: 0, reviews: 0 };
+      const existing = byModel.get(modelId) ?? {
+        model: modelId, tokens: 0, reviews: 0,
+        input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+      };
       existing.tokens += job.result_summary_json?.total_tokens ?? 0;
       existing.reviews += 1;
+      existing.input += job.result_summary_json?.input_tokens ?? 0;
+      existing.output += job.result_summary_json?.output_tokens ?? 0;
+      existing.cacheRead += job.result_summary_json?.cache_read_tokens ?? 0;
+      existing.cacheWrite += job.result_summary_json?.cache_write_tokens ?? 0;
       byModel.set(modelId, existing);
     }
     return Array.from(byModel.values()).sort((a, b) => b.tokens - a.tokens);
@@ -226,22 +248,54 @@ function ModelBreakdown({ jobs }: { jobs: Job[] }) {
 
   return (
     <div className={styles.usageModelBars}>
-      {models.map((m) => (
-        <div key={m.model} className={styles.usageModelRow}>
-          <div className={styles.usageModelInfo}>
-            <span className={styles.usageModelName}>{m.model}</span>
-            <span className={styles.usageModelStats}>
-              {formatTokens(m.tokens)} tokens · {m.reviews} {m.reviews === 1 ? "review" : "reviews"}
-            </span>
+      {/* Legend */}
+      <div className={styles.usageModelLegend}>
+        <span className={styles.usageModelLegendItem}>
+          <span className={styles.usagePieLegendDot} style={{ background: "var(--accent)" }} />
+          Input
+        </span>
+        <span className={styles.usageModelLegendItem}>
+          <span className={styles.usagePieLegendDot} style={{ background: "var(--success)" }} />
+          Output
+        </span>
+        <span className={styles.usageModelLegendItem}>
+          <span className={styles.usagePieLegendDot} style={{ background: "var(--warning)" }} />
+          Cache read
+        </span>
+        <span className={styles.usageModelLegendItem}>
+          <span className={styles.usagePieLegendDot} style={{ background: "#a855f7" }} />
+          Cache write
+        </span>
+      </div>
+      {models.map((m) => {
+        const widthPct = (m.tokens / maxTokens) * 100;
+        const seg = (val: number) =>
+          m.tokens > 0 ? `${(val / m.tokens) * widthPct}%` : "0%";
+        return (
+          <div key={m.model} className={styles.usageModelRow}>
+            <div className={styles.usageModelInfo}>
+              <span className={styles.usageModelName}>{m.model}</span>
+              <span className={styles.usageModelStats}>
+                {formatTokens(m.tokens)} tokens · {m.reviews} {m.reviews === 1 ? "review" : "reviews"}
+              </span>
+            </div>
+            <div className={styles.usageModelBarTrack}>
+              {m.input > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(m.input), background: "var(--accent)" }} />
+              ) : null}
+              {m.output > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(m.output), background: "var(--success)" }} />
+              ) : null}
+              {m.cacheRead > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(m.cacheRead), background: "var(--warning)" }} />
+              ) : null}
+              {m.cacheWrite > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(m.cacheWrite), background: "#a855f7" }} />
+              ) : null}
+            </div>
           </div>
-          <div className={styles.usageModelBarTrack}>
-            <div
-              className={styles.usageModelBarFill}
-              style={{ width: `${Math.max(2, (m.tokens / maxTokens) * 100)}%` }}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -250,6 +304,7 @@ export function UsagePage() {
   const jobsQuery = useJobs({ limit: 200 });
 
   const [range, setRange] = useState<RangeKey>("7d");
+  const [modelFilter, setModelFilter] = useState<string>("all");
   const today = new Date().toISOString().slice(0, 10);
   const [customFrom, setCustomFrom] = useState(
     new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10),
@@ -267,6 +322,17 @@ export function UsagePage() {
       ),
     [jobsQuery.data, startDate],
   );
+
+  // Unique model IDs for the filter dropdown.
+  const availableModels = useMemo(() => {
+    const models = new Set<string>();
+    for (const job of terminalJobs) {
+      const modelId =
+        (job.configuration_snapshot_json?.model as Record<string, string> | undefined)?.model_id;
+      if (modelId) models.add(modelId);
+    }
+    return Array.from(models).sort();
+  }, [terminalJobs]);
 
   const buckets = useMemo(
     () => buildBuckets(terminalJobs, startDate),
@@ -361,8 +427,23 @@ export function UsagePage() {
               />
             </div>
             <div className={styles.usageChartCard}>
-              <h3 className={styles.usageChartTitle}>Token breakdown</h3>
-              <TokenPieChart jobs={terminalJobs} />
+              <div className={styles.usageChartHeader}>
+                <h3 className={styles.usageChartTitle}>Token breakdown</h3>
+                {availableModels.length > 0 ? (
+                  <select
+                    aria-label="Filter by model"
+                    value={modelFilter}
+                    onChange={(e) => setModelFilter(e.target.value)}
+                    className={styles.usageModelSelect}
+                  >
+                    <option value="all">All models</option>
+                    {availableModels.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+              <TokenPieChart jobs={terminalJobs} modelFilter={modelFilter} />
             </div>
           </div>
 
