@@ -214,6 +214,7 @@ export interface Job {
   queue_position: number | null;
   status: JobStatus;
   status_message: string | null;
+  error_code: string | null;
   paused: boolean;
   configuration_snapshot_json: Record<string, unknown> | null;
   generated_command_json: GeneratedCommand | null;

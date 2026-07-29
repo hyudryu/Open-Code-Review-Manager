@@ -480,12 +480,20 @@ class OCRAdapter:
 
         if provider.base_url:
             env["OCR_LLM_URL"] = provider.base_url
-        # Always set OCR_LLM_TOKEN (empty string for tokenless providers).
-        # The OCR binary requires the env var to be present; an empty value
-        # signals "no auth" rather than "missing config".
-        env["OCR_LLM_TOKEN"] = provider.token or ""
-        if provider.token:
-            redactor.register(provider.token)
+        # Resolve OCR_LLM_TOKEN from credential or auth_header.
+        # The OCR binary requires URL/TOKEN/MODEL as a group; if any are
+        # set all three must be present. auth_header may contain a bearer
+        # token that the binary can use when no credential is stored.
+        token = provider.token
+        if not token and provider.auth_header:
+            hdr = provider.auth_header.strip()
+            if hdr.lower().startswith("bearer "):
+                token = hdr[7:]  # Extract token from "Bearer <token>"
+            elif hdr.lower().startswith("token "):
+                token = hdr[6:]
+        if token:
+            env["OCR_LLM_TOKEN"] = token
+            redactor.register(token)
         if provider.model:
             env["OCR_LLM_MODEL"] = provider.model
         if provider.protocol:

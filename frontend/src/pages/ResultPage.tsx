@@ -239,6 +239,11 @@ export function ResultPage() {
                   label: "Open session inspector",
                   onSelect: () => navigate(`/reviews/${jobId}/session`),
                 },
+                {
+                  key: "logs",
+                  label: "View OCR logs",
+                  onSelect: () => navigate(`/reviews/${jobId}/logs`),
+                },
               ]}
             />
           </>
@@ -303,9 +308,18 @@ export function ResultPage() {
         </section>
 
         {j.status_message ? (
-          <div className={styles.warningBox} role="status">
+          <div
+            className={styles.warningBox}
+            role="status"
+            title={j.error_code ? `Error: ${j.error_code}` : undefined}
+          >
             <IconWarning size={14} style={{ flex: "none", marginTop: 1 }} />
             <span>{j.status_message}</span>
+            {j.error_code ? (
+              <span className={layout.small} style={{ display: "block", marginTop: 4, color: "var(--text-tertiary)" }}>
+                Error code: {j.error_code}
+              </span>
+            ) : null}
           </div>
         ) : null}
 

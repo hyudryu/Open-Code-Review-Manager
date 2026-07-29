@@ -24,6 +24,7 @@ function makeJob(id: string, targetRef: string): Job {
     queue_position: null,
     status: "queued",
     status_message: null,
+    error_code: null,
     paused: false,
     configuration_snapshot_json: null,
     generated_command_json: null,

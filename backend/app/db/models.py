@@ -249,6 +249,7 @@ class ReviewJob(Base):
     manual_position: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     status: Mapped[str] = mapped_column(sa.String(32), default="queued", nullable=False)
     status_message: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     configuration_snapshot_json: Mapped[dict[str, Any] | None] = mapped_column(
         sa.JSON, nullable=True
     )

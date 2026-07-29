@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   useCancelJob,
   useClearCompleted,
@@ -54,6 +54,7 @@ export function QueuePage() {
   const queue = useQueue({ refetchInterval: 6_000 });
   const recent = useJobs({ limit: 15 });
   const projects = useProjects();
+  const navigate = useNavigate();
 
   const pauseQueue = usePauseQueue();
   const resumeQueue = useResumeQueue();
@@ -201,6 +202,11 @@ export function QueuePage() {
           ]
         : []),
       {
+        key: "logs",
+        label: "Logs",
+        onSelect: () => navigate(`/reviews/${job.id}/logs`),
+      },
+      {
         key: "duplicate",
         label: "Duplicate",
         onSelect: () =>
@@ -300,7 +306,12 @@ export function QueuePage() {
                   <span className={`${styles.ellipsize} ${layout.small} ${styles.queueRowHideMobile}`}>
                     {MODE_LABEL[job.mode]} · {job.source}
                   </span>
-                  <StatusDot tone={STATUS_TONE[job.status]} label={STATUS_LABEL[job.status]} pulse />
+                  <StatusDot
+                    tone={STATUS_TONE[job.status]}
+                    label={STATUS_LABEL[job.status]}
+                    pulse
+                    title={job.error_code ? `Error: ${job.error_code}` : undefined}
+                  />
                   <span className={`${layout.small} ${styles.queueRowHideMobile}`}>
                     {relativeTime(job.started_at ?? job.queued_at)}
                   </span>
@@ -447,7 +458,11 @@ export function QueuePage() {
                   <span className={`${layout.small} ${styles.queueRowHideMobile}`}>
                     {relativeTime(job.completed_at)}
                   </span>
-                  <StatusDot tone={STATUS_TONE[job.status]} label={STATUS_LABEL[job.status]} />
+                  <StatusDot
+                    tone={STATUS_TONE[job.status]}
+                    label={STATUS_LABEL[job.status]}
+                    title={job.error_code ? `Error: ${job.error_code}${job.status_message ? ` — ${job.status_message}` : ""}` : undefined}
+                  />
                   <Menu
                     ariaLabel={`Actions for ${projectName(job.project_id)}`}
                     trigger={

@@ -85,6 +85,7 @@ class QueueService(ServiceBase):
         target: str,
         *,
         message: str | None = None,
+        error_code: str | None = None,
         payload: dict[str, Any] | None = None,
         event_type: str = "job.status",
     ) -> models.JobEvent:
@@ -106,6 +107,8 @@ class QueueService(ServiceBase):
         if target in TERMINAL_STATUSES:
             job.completed_at = now
             job.process_id = None
+        if error_code is not None and target in TERMINAL_STATUSES:
+            job.error_code = error_code
 
         event_payload: dict[str, Any] = {
             "from": previous,

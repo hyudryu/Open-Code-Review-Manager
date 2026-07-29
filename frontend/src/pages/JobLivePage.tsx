@@ -98,8 +98,17 @@ export function JobLivePage() {
 
       <div className={`${layout.stack} ${layout.stackLg}`}>
         {j.status_message ? (
-          <div className={styles.warningBox} role="status">
+          <div
+            className={styles.warningBox}
+            role="status"
+            title={j.error_code ? `Error: ${j.error_code}` : undefined}
+          >
             <span>{j.status_message}</span>
+            {j.error_code ? (
+              <span className={layout.small} style={{ display: "block", marginTop: 4, color: "var(--text-tertiary)" }}>
+                Error code: {j.error_code}
+              </span>
+            ) : null}
           </div>
         ) : null}
 

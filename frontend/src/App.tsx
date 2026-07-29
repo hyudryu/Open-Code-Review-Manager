@@ -11,6 +11,7 @@ import { JobLivePage } from "./pages/JobLivePage";
 import { ReviewHistoryPage } from "./pages/ReviewHistoryPage";
 import { ResultPage } from "./pages/ResultPage";
 import { SessionPage } from "./pages/SessionPage";
+import { JobLogsPage } from "./pages/JobLogsPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { ProviderEditorPage } from "./pages/ProviderEditorPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
@@ -34,7 +35,8 @@ export function App() {
         <Route path="reviews/new" element={<NewReviewPage />} />
         <Route path="reviews/preview" element={<PreviewPage />} />
         <Route path="reviews/:jobId" element={<ResultPage />} />
-        <Route path="reviews/:jobId/session" element={<SessionPage />} />
+          <Route path="reviews/:jobId/session" element={<SessionPage />} />
+          <Route path="reviews/:jobId/logs" element={<JobLogsPage />} />
         <Route path="reviews" element={<ReviewHistoryPage />} />
         <Route path="queue" element={<QueuePage />} />
         <Route path="jobs/:jobId" element={<JobLivePage />} />
