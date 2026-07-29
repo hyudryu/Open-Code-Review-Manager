@@ -73,7 +73,13 @@ function FindingsTrend({ jobs }: { jobs: Job[] }) {
 /** Show the branch/commit being reviewed — never "HEAD". */
 function activeReviewTarget(job: Job): string {
   if (job.mode === "range" || job.mode === "pr") {
-    return `${job.base_ref ?? "?"} → ${job.target_ref ?? "?"}`;
+    const cleanRef = (ref: string | null) => {
+      if (!ref) return "?";
+      const prMatch = ref.match(/^refs\/pull\/(\d+)\/head$/);
+      if (prMatch) return `PR #${prMatch[1]}`;
+      return ref.replace(/^refs\/heads\//, "");
+    };
+    return `${cleanRef(job.target_ref)} → ${cleanRef(job.base_ref)}`;
   }
   if (job.mode === "commit") {
     // Prefer the resolved SHA from the snapshot; fall back to commit_ref.
@@ -323,10 +329,26 @@ export function OverviewPage() {
             </div>
           </section>
 
-          {/* Findings trend */}
+          {/* Findings trend — preview that links to the full Usage page */}
           <section aria-labelledby="ov-trend">
-            <h2 className={layout.sectionTitle} id="ov-trend">Findings trend</h2>
-            <div className={`${layout.section} ${layout.sectionTight}`}>
+            <div className={layout.sectionHeader}>
+              <h2 className={layout.sectionTitle} id="ov-trend" style={{ margin: 0 }}>
+                Findings trend
+              </h2>
+              <Link to="/usage" className={layout.small}>View usage →</Link>
+            </div>
+            <div
+              className={`${layout.section} ${layout.sectionTight} ${styles.clickablePreview}`}
+              onClick={() => navigate("/usage")}
+              role="link"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate("/usage");
+                }
+              }}
+            >
               {jobs.isLoading ? <Skeleton height={64} /> : <FindingsTrend jobs={jobs.data?.items ?? []} />}
             </div>
           </section>
