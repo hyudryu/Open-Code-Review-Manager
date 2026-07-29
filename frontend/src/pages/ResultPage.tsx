@@ -20,6 +20,7 @@ import {
   EmptyState,
   ErrorState,
   Menu,
+  Select,
   Skeleton,
   StatusDot,
   toast,
@@ -327,27 +328,17 @@ export function ResultPage() {
             <h2 className={layout.sectionTitle} style={{ margin: 0 }}>
               Findings by file
             </h2>
-            <select
+            <Select
               aria-label="Filter by finding state"
               value={stateFilter}
               onChange={(e) => setStateFilter(e.target.value)}
-              style={{
-                height: 28,
-                borderRadius: 6,
-                border: "1px solid var(--border-strong)",
-                background: "var(--bg-surface)",
-                color: "var(--text-primary)",
-                padding: "0 10px",
-                font: "var(--text-body)",
-                fontSize: 12.5,
-              }}
             >
               <option value="">All states</option>
               <option value="unreviewed">Unreviewed</option>
               <option value="accepted">Accepted</option>
               <option value="dismissed">Dismissed</option>
               <option value="needs_followup">Needs follow-up</option>
-            </select>
+            </Select>
           </div>
 
           {findings.isLoading ? (
