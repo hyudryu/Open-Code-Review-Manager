@@ -1,6 +1,6 @@
 /** Finding card (SPEC §15) — copy actions, user-state triage, note. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Finding, FindingState } from "../../types";
 import { useFindingReasoning, useUpdateFinding } from "../../api/hooks";
 import { Badge, Button, CopyButton } from "../../components/ui";
@@ -55,6 +55,23 @@ export function FindingCard({ finding }: { finding: Finding }) {
       ? `${finding.path}:${finding.start_line}${finding.end_line && finding.end_line !== finding.start_line ? `-${finding.end_line}` : ""}`
       : finding.path;
 
+  /** Build the full clipboard text: location → content → code blocks */
+  const copyText = useMemo(() => {
+    const parts = [`[${lineRef}]`, ""];
+    parts.push(finding.content);
+    if (finding.existing_code) {
+      parts.push("");
+      parts.push("---");
+      parts.push(finding.existing_code);
+    }
+    if (finding.suggestion_code) {
+      parts.push("");
+      parts.push("---");
+      parts.push(finding.suggestion_code);
+    }
+    return parts.join("\n");
+  }, [finding.content, finding.existing_code, finding.suggestion_code, lineRef]);
+
   return (
     <article className={styles.findingCard} aria-label={`Finding in ${finding.path}`}>
       <div className={styles.findingHeader}>
@@ -73,8 +90,7 @@ export function FindingCard({ finding }: { finding: Finding }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 2, flex: "none" }}>
-          <CopyButton text={finding.content} label="Finding" />
-          <CopyButton text={lineRef} label="Location" />
+          <CopyButton text={copyText} label="Copy finding" />
         </div>
       </div>
 
