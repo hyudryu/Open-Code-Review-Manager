@@ -12,7 +12,7 @@ import { qk } from "../api/hooks";
 
 export interface LiveFileProgress {
   path: string;
-  state: "started" | "completed";
+  state: "pending" | "started" | "completed" | "failed";
   comments: number | null;
 }
 
@@ -25,6 +25,7 @@ export interface LiveJobState {
   connected: boolean;
   status: string | null;
   phase: string | null;
+  totalFiles: number | null;
   files: Map<string, LiveFileProgress>;
   log: LiveLogLine[];
   warnings: string[];
@@ -46,15 +47,16 @@ const TERMINAL_STATUSES = new Set([
   "interrupted",
 ]);
 
-type Action =
+export type LiveJobAction =
   | { type: "connected"; value: boolean }
   | { type: "event"; eventType: string; payload: Record<string, unknown>; id: number | null }
   | { type: "reset" };
 
-const initialState: LiveJobState = {
+export const initialLiveJobState: LiveJobState = {
   connected: false,
   status: null,
   phase: null,
+  totalFiles: null,
   files: new Map(),
   log: [],
   warnings: [],
@@ -63,10 +65,13 @@ const initialState: LiveJobState = {
   lastEventId: 0,
 };
 
-function reducer(state: LiveJobState, action: Action): LiveJobState {
+export function liveJobReducer(
+  state: LiveJobState,
+  action: LiveJobAction,
+): LiveJobState {
   switch (action.type) {
     case "reset":
-      return { ...initialState };
+      return { ...initialLiveJobState };
     case "connected":
       return { ...state, connected: action.value };
     case "event": {
@@ -88,6 +93,21 @@ function reducer(state: LiveJobState, action: Action): LiveJobState {
           next.phase = typeof payload.phase === "string" ? payload.phase : null;
           break;
         }
+        case "job.inventory": {
+          const inventory = Array.isArray(payload.files)
+            ? payload.files.filter((file): file is string => typeof file === "string")
+            : [];
+          const files = new Map(state.files);
+          for (const file of inventory.slice(0, MAX_FILES)) {
+            if (!files.has(file)) {
+              files.set(file, { path: file, state: "pending", comments: null });
+            }
+          }
+          next.files = files;
+          next.totalFiles =
+            typeof payload.total_files === "number" ? payload.total_files : inventory.length;
+          break;
+        }
         case "job.file_started": {
           const file = typeof payload.file === "string" ? payload.file : null;
           if (file) {
@@ -107,7 +127,7 @@ function reducer(state: LiveJobState, action: Action): LiveJobState {
             const files = new Map(state.files);
             files.set(file, {
               path: file,
-              state: "completed",
+              state: payload.failed === true ? "failed" : "completed",
               comments: typeof payload.comments === "number" ? payload.comments : null,
             });
             next.files = files;
@@ -146,7 +166,7 @@ function reducer(state: LiveJobState, action: Action): LiveJobState {
 }
 
 export function useJobEvents(jobId: string | undefined, enabled = true) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(liveJobReducer, initialLiveJobState);
   const qc = useQueryClient();
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -192,6 +212,7 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       "job.status",
       "job.log",
       "job.phase",
+      "job.inventory",
       "job.file_started",
       "job.file_completed",
       "job.warning",

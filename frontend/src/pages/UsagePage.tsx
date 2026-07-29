@@ -153,10 +153,15 @@ function TokenPieChart({ jobs, modelFilter }: { jobs: Job[]; modelFilter: string
   const slices = useMemo<TokenSlice[]>(() => {
     const input = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.input_tokens ?? 0), 0);
     const output = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.output_tokens ?? 0), 0);
-    const cacheRead = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_read_tokens ?? 0), 0);
-    const cacheWrite = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_write_tokens ?? 0), 0);
+    const reportedCacheRead = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_read_tokens ?? 0), 0);
+    const reportedCacheWrite = filteredJobs.reduce((s, j) => s + (j.result_summary_json?.cache_write_tokens ?? 0), 0);
+    // Cache tokens are subsets of input tokens, not additional tokens. Keep
+    // the chart segments disjoint so their percentages add up to 100%.
+    const cacheRead = Math.min(input, reportedCacheRead);
+    const cacheWrite = Math.min(Math.max(0, input - cacheRead), reportedCacheWrite);
+    const uncachedInput = Math.max(0, input - cacheRead - cacheWrite);
     return [
-      { key: "input", label: "Input", value: input, color: "var(--accent)" },
+      { key: "input", label: "Uncached input", value: uncachedInput, color: "var(--accent)" },
       { key: "output", label: "Output", value: output, color: "var(--success)" },
       { key: "cacheRead", label: "Cache read", value: cacheRead, color: "var(--warning)" },
       { key: "cacheWrite", label: "Cache write", value: cacheWrite, color: "#a855f7" },
@@ -218,7 +223,7 @@ interface ModelUsage {
 }
 
 /** Horizontal stacked bar chart of token usage per model, segmented by token type. */
-function ModelBreakdown({ jobs }: { jobs: Job[] }) {
+export function ModelBreakdown({ jobs }: { jobs: Job[] }) {
   const models = useMemo<ModelUsage[]>(() => {
     const byModel = new Map<string, ModelUsage>();
     for (const job of jobs) {
@@ -252,7 +257,7 @@ function ModelBreakdown({ jobs }: { jobs: Job[] }) {
       <div className={styles.usageModelLegend}>
         <span className={styles.usageModelLegendItem}>
           <span className={styles.usagePieLegendDot} style={{ background: "var(--accent)" }} />
-          Input
+          Uncached input
         </span>
         <span className={styles.usageModelLegendItem}>
           <span className={styles.usagePieLegendDot} style={{ background: "var(--success)" }} />
@@ -269,6 +274,9 @@ function ModelBreakdown({ jobs }: { jobs: Job[] }) {
       </div>
       {models.map((m) => {
         const widthPct = (m.tokens / maxTokens) * 100;
+        const cacheRead = Math.min(m.input, m.cacheRead);
+        const cacheWrite = Math.min(Math.max(0, m.input - cacheRead), m.cacheWrite);
+        const uncachedInput = Math.max(0, m.input - cacheRead - cacheWrite);
         const seg = (val: number) =>
           m.tokens > 0 ? `${(val / m.tokens) * widthPct}%` : "0%";
         return (
@@ -279,18 +287,18 @@ function ModelBreakdown({ jobs }: { jobs: Job[] }) {
                 {formatTokens(m.tokens)} tokens · {m.reviews} {m.reviews === 1 ? "review" : "reviews"}
               </span>
             </div>
-            <div className={styles.usageModelBarTrack}>
-              {m.input > 0 ? (
-                <div className={styles.usageModelBarSegment} style={{ width: seg(m.input), background: "var(--accent)" }} />
+            <div className={styles.usageModelBarTrack} data-testid="model-usage-bar">
+              {uncachedInput > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(uncachedInput), background: "var(--accent)" }} />
               ) : null}
               {m.output > 0 ? (
                 <div className={styles.usageModelBarSegment} style={{ width: seg(m.output), background: "var(--success)" }} />
               ) : null}
-              {m.cacheRead > 0 ? (
-                <div className={styles.usageModelBarSegment} style={{ width: seg(m.cacheRead), background: "var(--warning)" }} />
+              {cacheRead > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(cacheRead), background: "var(--warning)" }} />
               ) : null}
-              {m.cacheWrite > 0 ? (
-                <div className={styles.usageModelBarSegment} style={{ width: seg(m.cacheWrite), background: "#a855f7" }} />
+              {cacheWrite > 0 ? (
+                <div className={styles.usageModelBarSegment} style={{ width: seg(cacheWrite), background: "#a855f7" }} />
               ) : null}
             </div>
           </div>

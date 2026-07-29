@@ -27,7 +27,7 @@ from app.db import models
 from app.db.session import get_session_factory
 from app.git.service import GitError, GitService
 from app.ocr.adapter import OCRAdapter, UnsupportedFeatureError
-from app.ocr.models import SessionEvent
+from app.ocr.models import ReviewJobContext, SessionEvent
 from app.queue.bus import get_event_bus
 from app.queue.processes import terminate_process_tree
 from app.queue.service import QueueService, TERMINAL_STATUSES, WebhookDispatcher
@@ -404,6 +404,58 @@ class JobRunner:
             env["HOME"] = str(job_home)
             env["USERPROFILE"] = str(job_home)
 
+        # OCR writes detailed activity to its session JSONL rather than to
+        # stdout/stderr. Run its no-LLM preview first so the live UI has a
+        # stable, complete denominator instead of treating files seen so far
+        # as the total.
+        await self._emit(job_id, "job.phase", {"phase": "discovering_files"})
+        try:
+            context_data = dict(snapshot.get("context") or {})
+            context_data["repo_path"] = repo_path
+            preview = await self.adapter.run_preview(
+                ReviewJobContext.model_validate(context_data), env=env
+            )
+            if preview.ok:
+                reviewable_files = [
+                    item.path for item in preview.files if item.will_review and item.path
+                ]
+                await self._emit(
+                    job_id,
+                    "job.inventory",
+                    {
+                        "files": reviewable_files,
+                        "total_files": (
+                            preview.reviewable_count
+                            if preview.reviewable_count is not None
+                            else len(reviewable_files)
+                        ),
+                    },
+                )
+            elif preview.message:
+                await self._emit(
+                    job_id,
+                    "job.warning",
+                    {
+                        "message": (
+                            "Could not determine the review file list before starting: "
+                            f"{redact_text(preview.message)[:300]}"
+                        )
+                    },
+                )
+        except Exception as exc:
+            # Inventory improves observability but must never prevent a review
+            # from running. Session events still provide incremental progress.
+            logger.warning(
+                "job_preview_inventory_failed",
+                job_id=job_id,
+                error=type(exc).__name__,
+            )
+            await self._emit(
+                job_id,
+                "job.warning",
+                {"message": "Could not determine the review file list before starting."},
+            )
+
         job_dir = self.settings.job_dir(job_id)
         stdout_path = job_dir / "stdout.log"
         stderr_path = job_dir / "stderr.log"
@@ -448,6 +500,7 @@ class JobRunner:
             "offset": 0,
             "path": None,
             "seen_files": set(),
+            "phase": None,
             "stop": asyncio.Event(),
         }
         tail_task = asyncio.create_task(self._tail_session(job_id, job_home, tail_state))
@@ -476,8 +529,19 @@ class JobRunner:
             exit_code = await wait_task if wait_task.done() else proc.returncode
         finally:
             cancel_task.cancel()
-            for task in (stdout_task, stderr_task):
-                task.cancel()
+            # The child may flush its only stdout/stderr output while exiting.
+            # Let both pipe readers drain to EOF before finalization instead of
+            # cancelling them as soon as proc.wait() completes.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(stdout_task, stderr_task), timeout=5
+                )
+            except (TimeoutError, asyncio.CancelledError):
+                for task in (stdout_task, stderr_task):
+                    task.cancel()
+                await asyncio.gather(
+                    stdout_task, stderr_task, return_exceptions=True
+                )
             # Stop the tailer gracefully rather than cancelling it: a drain
             # cancelled between advancing the parse offset and emitting the
             # events would silently drop progress events (observed as flaky
@@ -487,9 +551,7 @@ class JobRunner:
                 await asyncio.wait_for(tail_task, timeout=5)
             except (TimeoutError, asyncio.CancelledError):
                 tail_task.cancel()
-            await asyncio.gather(
-                stdout_task, stderr_task, tail_task, return_exceptions=True
-            )
+            await asyncio.gather(tail_task, return_exceptions=True)
 
         # Final drain: catch session records written just before process exit
         # (fast jobs can finish before the first tailer poll).
@@ -570,16 +632,33 @@ class JobRunner:
         )
         state["offset"] = new_offset
         for event in events:
-            mapped = self._map_session_event(event, state["seen_files"])
-            if mapped is not None:
-                event_type, payload = mapped
+            phase = self._session_phase(event)
+            if phase is not None and phase != state.get("phase"):
+                state["phase"] = phase
+                await self._emit(
+                    job_id,
+                    "job.phase",
+                    {"phase": phase, "file": event.file_path, "seq": event.seq},
+                )
+
+            for event_type, payload in self._map_session_events(
+                event, state["seen_files"]
+            ):
                 await self._emit(job_id, event_type, payload)
 
+            activity = self._session_activity(event)
+            if activity is not None:
+                await self._emit(
+                    job_id,
+                    "job.log",
+                    {"stream": "stdout", "text": activity},
+                )
+
     @staticmethod
-    def _map_session_event(
+    def _map_session_events(
         event: SessionEvent, seen_files: set[str]
-    ) -> tuple[str, dict[str, Any]] | None:
-        """Map normalized session records onto SPEC §14 job events."""
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Map normalized session records onto live job events."""
 
         record_type = (event.record_type or "").lower()
         payload: dict[str, Any] = {
@@ -587,33 +666,95 @@ class JobRunner:
             "file": event.file_path,
             "seq": event.seq,
         }
+        mapped: list[tuple[str, dict[str, Any]]] = []
         if event.error:
-            payload["message"] = event.error
-            return "job.warning", payload
-        if record_type in {"session_start", "start"}:
-            payload["phase"] = "session_started"
-            return "job.phase", payload
+            mapped.append(
+                ("job.warning", {**payload, "message": redact_text(event.error)[:500]})
+            )
+
+        # OCR 1.8 identifies files with the first planning/review request.
+        # Older binaries emitted explicit file_start records.
         if event.file_path and (
             "start" in record_type or record_type in {"file", "file_start"}
+            or (
+                record_type == "llm_request"
+                and event.task_type in {"plan_task", "main_task"}
+            )
         ):
             if event.file_path not in seen_files:
                 seen_files.add(event.file_path)
-                return "job.file_started", payload
-            return None
+                mapped.append(("job.file_started", payload))
+
+        # A failed item is still terminal for progress, while its warning is
+        # retained above.
         if event.file_path and (
             "complete" in record_type
             or "done" in record_type
             or "finish" in record_type
-            or event.comments_count is not None
+            or record_type == "review_item_failed"
+            or (
+                event.comments_count is not None
+                and record_type not in {"llm_request", "llm_response"}
+            )
         ):
             payload["comments"] = event.comments_count
-            return "job.file_completed", payload
+            payload["failed"] = record_type == "review_item_failed"
+            mapped.append(("job.file_completed", payload))
         if record_type in {"summary", "final", "result"}:
-            return "job.summary", payload
+            mapped.append(("job.summary", payload))
+        return mapped
+
+    @staticmethod
+    def _session_phase(event: SessionEvent) -> str | None:
+        """Return a user-facing phase for current and legacy OCR records."""
+
+        task_phases = {
+            "plan_task": "planning",
+            "main_task": "reviewing",
+            "review_filter_task": "filtering_findings",
+            "re_location_task": "relocating_findings",
+        }
+        if event.task_type in task_phases:
+            return task_phases[event.task_type]
+        record_type = (event.record_type or "").lower()
+        if record_type in {"session_start", "start"}:
+            return "starting_review"
+        if record_type in {"session_end", "summary", "final", "result"}:
+            return "finalizing"
         if record_type in {"plan", "planning"}:
-            payload["phase"] = "planning"
-            return "job.phase", payload
-        return None  # noisy records (llm_request, tool_call) are not persisted
+            return "planning"
+        return None
+
+    @staticmethod
+    def _session_activity(event: SessionEvent) -> str | None:
+        """Build a privacy-safe terminal line from normalized metadata."""
+
+        record_type = (event.record_type or "").lower()
+        phase = JobRunner._session_phase(event)
+        phase_label = (phase or event.task_type or "activity").replace("_", " ")
+        target = event.file_path or "review"
+
+        if record_type == "llm_request":
+            request = f" request {event.request_no}" if event.request_no is not None else ""
+            return f"[{phase_label}] {target} - model{request}"
+        if record_type == "llm_response":
+            duration = (
+                f" in {event.duration_ms / 1000:.1f}s"
+                if event.duration_ms is not None
+                else ""
+            )
+            return f"[{phase_label}] {target} - model response{duration}"
+        if record_type == "tool_call":
+            return f"[{phase_label}] {target} - {event.tool_name or 'tool'}"
+        if record_type == "review_item_done":
+            comments = event.comments_count or 0
+            suffix = "comment" if comments == 1 else "comments"
+            return f"[completed] {target} - {comments} {suffix}"
+        if record_type == "review_item_failed":
+            return f"[failed] {target}"
+        if record_type == "session_end":
+            return "[finalizing] Review session finished"
+        return None
 
     # ------------------------------------------------------------------
     # finalization

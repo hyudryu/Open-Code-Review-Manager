@@ -19,6 +19,12 @@ import { TERMINAL_STATUSES } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
+function phaseLabel(phase: string): string {
+  return phase
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function JobLivePage() {
   const { jobId = "" } = useParams();
   const navigate = useNavigate();
@@ -46,7 +52,10 @@ export function JobLivePage() {
   }, [live.log, autoScroll]);
 
   const files = useMemo(() => Array.from(live.files.values()), [live.files]);
-  const completedCount = files.filter((f) => f.state === "completed").length;
+  const completedCount = files.filter(
+    (f) => f.state === "completed" || f.state === "failed",
+  ).length;
+  const totalFiles = live.totalFiles ?? files.length;
   const liveStatus = live.status ?? job.data?.status ?? null;
 
   if (job.isLoading) {
@@ -131,16 +140,16 @@ export function JobLivePage() {
               Progress
             </h2>
             <span className={layout.small}>
-              {live.phase ? `Phase: ${live.phase} · ` : ""}
-              {completedCount} of {files.length || "…"} files
+              {live.phase ? `Phase: ${phaseLabel(live.phase)} · ` : ""}
+              {completedCount} of {totalFiles ?? "…"} files
             </span>
           </div>
           <div className={styles.progressBar} aria-hidden="true">
             <div
               className={styles.progressFill}
               style={{
-                width: files.length
-                  ? `${Math.round((completedCount / files.length) * 100)}%`
+                width: totalFiles
+                  ? `${Math.round((completedCount / totalFiles) * 100)}%`
                   : "8%",
               }}
             />
@@ -150,14 +159,26 @@ export function JobLivePage() {
               {files.map((file) => (
                 <li key={file.path} className={styles.fileProgress}>
                   <StatusDot
-                    tone={file.state === "completed" ? "ok" : "accent"}
+                    tone={
+                      file.state === "completed"
+                        ? "ok"
+                        : file.state === "failed"
+                          ? "warn"
+                          : file.state === "started"
+                            ? "accent"
+                            : "muted"
+                    }
                     label=""
                   />
                   <span className={styles.fileProgressPath}>{file.path}</span>
                   <span className={layout.small}>
                     {file.state === "completed"
                       ? `${file.comments ?? 0} comment${file.comments === 1 ? "" : "s"}`
-                      : "reviewing…"}
+                      : file.state === "failed"
+                        ? "failed"
+                        : file.state === "started"
+                          ? "reviewing…"
+                          : "queued"}
                   </span>
                 </li>
               ))}
