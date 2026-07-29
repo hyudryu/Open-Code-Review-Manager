@@ -62,8 +62,7 @@ function Sidebar() {
         aria-label="Primary"
       >
         <div className={styles.brand}>
-          <span className={styles.brandMark}>OC</span>
-          <span>OCR Manager</span>
+          <span>Alibaba OCR Manager</span>
         </div>
         <div className={styles.nav}>
           {NAV.map((item) => (
@@ -138,8 +137,7 @@ export function AppLayout() {
             <IconMenu size={20} />
           </Button>
           <span className={styles.brand}>
-            <span className={styles.brandMark}>OC</span>
-            <span>OCR Manager</span>
+            <span>Alibaba OCR Manager</span>
           </span>
         </div>
         <main className={styles.content} id="main">
