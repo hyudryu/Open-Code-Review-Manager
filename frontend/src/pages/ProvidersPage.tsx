@@ -1,14 +1,13 @@
 /** Providers list (SPEC §9, §20) — health, endpoint, protocol, models, last test. */
 
 import { useNavigate } from "react-router-dom";
-import { useProviders } from "../api/hooks";
+import { useInvalidateProviderHealth, useProviders } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Button,
   EmptyState,
   ErrorState,
   Skeleton,
-  StatusDot,
   Table,
   TBody,
   Td,
@@ -16,14 +15,16 @@ import {
   THead,
   Tr,
 } from "../components/ui";
-import { IconPlus, IconProviders } from "../components/ui/icons";
+import { IconPlus, IconProviders, IconRefresh } from "../components/ui/icons";
 import { relativeTime } from "../lib/format";
 import layout from "../layouts/layout.module.css";
 import { ModelCount } from "../features/providers/ModelCount";
+import { ProviderStatus } from "../features/providers/ProviderStatus";
 
 export function ProvidersPage() {
   const navigate = useNavigate();
   const providers = useProviders();
+  const invalidateHealth = useInvalidateProviderHealth();
 
   return (
     <>
@@ -31,9 +32,14 @@ export function ProvidersPage() {
         title="Providers"
         subtitle="LLM endpoints and credentials. Keys are stored in the OS credential store and never shown after saving."
         actions={
-          <Button variant="primary" onClick={() => navigate("/providers/new")}>
-            <IconPlus size={14} /> Add provider
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => invalidateHealth()}>
+              <IconRefresh size={14} /> Refresh status
+            </Button>
+            <Button variant="primary" onClick={() => navigate("/providers/new")}>
+              <IconPlus size={14} /> Add provider
+            </Button>
+          </>
         }
       />
 
@@ -99,10 +105,7 @@ export function ProvidersPage() {
                   )}
                 </Td>
                 <Td>
-                  <StatusDot
-                    tone={!p.enabled ? "muted" : p.has_credential ? "ok" : "warn"}
-                    label={!p.enabled ? "disabled" : p.has_credential ? "configured" : "no key"}
-                  />
+                  <ProviderStatus providerId={p.id} enabled={p.enabled} />
                 </Td>
               </Tr>
             ))}

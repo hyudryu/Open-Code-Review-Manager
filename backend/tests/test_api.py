@@ -368,6 +368,31 @@ async def test_job_validation_error_shape(client, repo) -> None:
     assert error["next_action"]
 
 
+async def test_provider_health_endpoint(client, repo) -> None:
+    """GET /providers/{id}/health is read-only (no CSRF) and surfaces a
+    validation error when the provider has no base URL. The auth-header and
+    per-status buckets are covered in test_provider_health.py."""
+
+    headers = csrf(client)
+    response = await client.post(
+        "/api/v1/providers",
+        json={
+            "name": "HealthNoUrl",
+            "protocol": "openai",
+            "base_url": "",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    provider_id = response.json()["id"]
+
+    # GET is safe: no CSRF header required.
+    response = await client.get(f"/api/v1/providers/{provider_id}/health")
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert "base url" in body["error"]["message"].lower()
+
+
 async def test_provider_crud_and_queue_controls(client, repo) -> None:
     headers = csrf(client)
     # Queue pause/resume.

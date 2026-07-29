@@ -19,7 +19,12 @@ from app.db import models
 from app.ocr.models import ProviderResolution
 from app.services.deps import ServiceBase
 from app.services.errors import ConflictError, NotFoundError, ValidationFailedError
-from app.services.llm_ping import ConnectionTestResult, ping_llm
+from app.services.llm_ping import (
+    ConnectionTestResult,
+    HealthProbeResult,
+    ping_llm,
+    probe_health,
+)
 
 logger = get_logger(__name__)
 
@@ -234,6 +239,32 @@ class ProviderService(ServiceBase):
                 ),
             )
         return await ping_llm(resolution, http_client=http_client)
+
+    # -- list-page health probe -------------------------------------------------
+
+    async def health_check(
+        self,
+        provider_id: str,
+        *,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> HealthProbeResult:
+        """Lightweight ``GET /models`` reachability probe for the list page.
+
+        Unlike :meth:`test_connection`, this needs no model selection and
+        sends no request body — it works for every provider, including
+        keyless local servers. A 2xx is "online" regardless of auth; a
+        401/403 is "auth needed"; anything else is "offline". Nothing is
+        written to the database and the credential is never logged.
+        """
+
+        provider = await self.get(provider_id)
+        resolution = await self.resolve(provider)
+        if not (resolution.base_url or "").strip():
+            raise ValidationFailedError(
+                "This provider has no base URL configured.",
+                next_action="Set the base URL on the provider, then retry.",
+            )
+        return await probe_health(resolution, http_client=http_client)
 
     # -- model discovery --------------------------------------------------------
 
