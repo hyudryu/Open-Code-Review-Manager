@@ -32,6 +32,19 @@ def _error_payload(exc: ServiceError) -> dict[str, Any]:
     return {"error": exc.to_dict()["error"]}
 
 
+def _project_brief(p: models.Project) -> dict[str, Any]:
+    """Compact project summary shared by list/add tools."""
+
+    return {
+        "id": p.id,
+        "display_name": p.display_name,
+        "absolute_path": p.absolute_path,
+        "default_branch": p.default_branch,
+        "current_branch": p.current_branch,
+        "is_available": p.is_available,
+    }
+
+
 async def ocr_list_projects(
     query: str | None = None, include_unavailable: bool = False
 ) -> list[dict[str, Any]]:
@@ -39,17 +52,36 @@ async def ocr_list_projects(
     async with factory() as session:
         service = ProjectService(session)
         projects = await service.list(query=query, include_unavailable=include_unavailable)
-        return [
-            {
-                "id": p.id,
-                "display_name": p.display_name,
-                "absolute_path": p.absolute_path,
-                "default_branch": p.default_branch,
-                "current_branch": p.current_branch,
-                "is_available": p.is_available,
-            }
-            for p in projects
-        ]
+        return [_project_brief(p) for p in projects]
+
+
+async def ocr_add_project(
+    absolute_path: str,
+    display_name: str | None = None,
+) -> dict[str, Any]:
+    """Register the repository at ``absolute_path`` and return its project id.
+
+    Idempotent: if the repository (resolved to its git top-level) is already
+    registered, the existing project is returned unchanged. Use this to recover
+    when another tool (e.g. ``ocr_submit_review``) returns ``not_found`` for a
+    project id — point it at the repository path you want reviewed, then retry.
+    """
+
+    factory = get_session_factory()
+    async with factory() as session:
+        service = ProjectService(session)
+        existing = await service.find_by_path(absolute_path)
+        if existing is not None:
+            await session.commit()
+            return {**_project_brief(existing), "already_registered": True}
+        try:
+            project = await service.create(
+                absolute_path=absolute_path, display_name=display_name
+            )
+            await session.commit()
+        except ServiceError as exc:
+            return _error_payload(exc)
+        return {**_project_brief(project), "already_registered": False}
 
 
 async def ocr_list_branches(
@@ -448,7 +480,10 @@ def build_mcp_server() -> FastMCP:
     mcp = FastMCP(
         "ocr-control-center",
         instructions=(
-            "Submit and manage OpenCodeReview jobs. Submission is async: "
+            "Submit and manage OpenCodeReview jobs. A review target must be a "
+            "registered project — if ocr_submit_review or ocr_preview_review "
+            "returns not_found for a project id, call ocr_add_project with the "
+            "repository path to register it, then retry. Submission is async: "
             "submit, then call ocr_get_job with wait_for_terminal=true to block "
             "until completion, or read ocr://jobs/{id}/result."
         ),
@@ -460,6 +495,14 @@ def build_mcp_server() -> FastMCP:
     mcp.tool(name="ocr_list_projects", description="List registered projects.")(
         ocr_list_projects
     )
+    mcp.tool(
+        name="ocr_add_project",
+        description=(
+            "Register the repository at absolute_path and return its project id. "
+            "Idempotent: returns the existing project if already registered. Use "
+            "it to recover when another tool returns not_found for a project id."
+        ),
+    )(ocr_add_project)
     mcp.tool(
         name="ocr_list_branches",
         description="List cached branches for a project (optionally refresh/fetch).",

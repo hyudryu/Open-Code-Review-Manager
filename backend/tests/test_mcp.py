@@ -19,6 +19,7 @@ async def test_mcp_server_builds() -> None:
     tools = {tool.name for tool in await mcp.list_tools()}
     assert {
         "ocr_list_projects",
+        "ocr_add_project",
         "ocr_list_branches",
         "ocr_list_profiles",
         "ocr_preview_review",
@@ -143,3 +144,75 @@ async def test_profiles_and_preview_tools(project, fake_ocr) -> None:
     assert preview["ok"] is True
     assert preview["reviewable_count"] == 1
     assert preview["files"][1]["exclude_reason"] == "binary"
+
+
+async def test_add_project_registers_and_recovers_not_found(
+    db, runtime, make_repo, fake_ocr
+) -> None:
+    """ocr_add_project recovers a not_found error from ocr_submit_review.
+
+    Mirrors the agent workflow: submit fails because the repo isn't
+    registered, the agent registers it via ocr_add_project, then retries.
+    """
+
+    repo = make_repo("agent_repo")
+
+    # Submitting against a bogus project id yields not_found, not an exception.
+    error = await mcp_server.ocr_submit_review(
+        project_id="not-a-real-project", mode="commit", commit_ref="HEAD"
+    )
+    assert error["error"]["code"] == "not_found"
+
+    # Register the repo the agent is working in.
+    added = await mcp_server.ocr_add_project(absolute_path=str(repo))
+    assert added["already_registered"] is False
+    project_id = added["id"]
+    assert added["absolute_path"] == str(repo)
+    assert added["is_available"] is True
+
+    # It now shows up in ocr_list_projects.
+    listed = await mcp_server.ocr_list_projects()
+    assert any(p["id"] == project_id for p in listed)
+
+    # The same id now succeeds (recovery flow).
+    submitted = await mcp_server.ocr_submit_review(
+        project_id=project_id, mode="commit", commit_ref="HEAD"
+    )
+    assert submitted["status"] == "queued"
+
+
+async def test_add_project_is_idempotent(project, repo) -> None:
+    """Re-adding an already-registered repo returns it unchanged."""
+
+    project_id, _ = project
+
+    again = await mcp_server.ocr_add_project(absolute_path=str(repo))
+    assert again["already_registered"] is True
+    assert again["id"] == project_id
+
+    # No duplicate row was created.
+    listed = await mcp_server.ocr_list_projects()
+    matches = [p for p in listed if p["absolute_path"] == str(repo)]
+    assert len(matches) == 1
+
+
+async def test_add_project_resolves_subdirectory(project, repo) -> None:
+    """A subdirectory resolves to the registered repo's top-level."""
+
+    project_id, _ = project
+    subdir = repo / "src" / "deep"
+    subdir.mkdir(parents=True)
+
+    found = await mcp_server.ocr_add_project(absolute_path=str(subdir))
+    assert found["already_registered"] is True
+    assert found["id"] == project_id
+
+
+async def test_add_project_rejects_non_repo(db, runtime, tmp_path) -> None:
+    """A path that isn't a git repo returns a structured validation error."""
+
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+
+    error = await mcp_server.ocr_add_project(absolute_path=str(not_a_repo))
+    assert error["error"]["code"] == "validation_failed"

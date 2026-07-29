@@ -61,13 +61,21 @@ class ConflictError(ServiceError):
 
 
 class ValidationFailedError(ServiceError):
-    def __init__(self, message: str, *, detail: str | None = None, next_action: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        detail: str | None = None,
+        next_action: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(
             "validation_failed",
             message,
             detail=detail,
             next_action=next_action,
             http_status=422,
+            extra=extra,
         )
 
 
