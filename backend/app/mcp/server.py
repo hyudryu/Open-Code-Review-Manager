@@ -508,80 +508,161 @@ def build_mcp_server() -> FastMCP:
     mcp = FastMCP(
         "ocr-control-center",
         instructions=(
-            "Submit and manage OpenCodeReview jobs. A review target must be a "
-            "registered project — if ocr_submit_review or ocr_preview_review "
-            "returns not_found for a project id, call ocr_add_project with the "
-            "repository path to register it, then retry. When profile_id is "
-            "omitted the built-in Default profile is used; if that returns "
-            "default_profile_not_configured, the user must set a provider and "
-            "model on the Default profile (via the UI) before reviews can run. "
-            "Submission is async: submit, then call ocr_get_job with "
-            "wait_for_terminal=true to block until completion, or read "
-            "ocr://jobs/{id}/result."
+            "This server runs OpenCodeReview (OCR) — an automated code review "
+            "tool that analyzes diffs and pull requests for bugs, security "
+            "issues, performance problems, and code quality.\n\n"
+            "COMMON REQUESTS AND HOW TO HANDLE THEM:\n"
+            "• \"review the code\" / \"do a code review\" / \"review my changes\":\n"
+            "  call ocr_submit_review. If no branch is specified, use the "
+            "  current branch as target_ref (range mode, base auto-defaults to "
+            "  the project's main branch). If they say \"review this commit\", "
+            "  use commit mode with commit_ref='HEAD'. If they say \"review "
+            "  uncommitted changes\", use workspace mode.\n"
+            "• \"what did the review find?\" / \"show me the findings\":\n"
+            "  call ocr_get_findings with the job id.\n"
+            "• \"is the review done?\": call ocr_get_job with "
+            "  wait_for_terminal=true.\n\n"
+            "WORKFLOW:\n"
+            "1. Find the project: call ocr_list_projects (or ocr_add_project "
+            "   if not registered).\n"
+            "2. Submit: call ocr_submit_review with the project id and the "
+            "   appropriate mode/refs.\n"
+            "3. Wait: call ocr_get_job with wait_for_terminal=true.\n"
+            "4. Read results: call ocr_get_findings.\n\n"
+            "MODES:\n"
+            "  range (default) — compare two branches. base_ref auto-defaults "
+            "  to the project's main branch; only target_ref is required.\n"
+            "  commit    — review a single commit (commit_ref='HEAD' for latest).\n"
+            "  workspace — review uncommitted working-tree changes.\n"
+            "  pr        — review a GitHub pull request by number.\n\n"
+            "PROFILES:\n"
+            "  Omit profile_id to use the built-in Default profile. If you get "
+            "  default_profile_not_configured, tell the user to set a provider "
+            "  and model on the Default profile in the UI."
         ),
         streamable_http_path="/",
         json_response=True,
         stateless_http=True,
     )
 
-    mcp.tool(name="ocr_list_projects", description="List registered projects.")(
-        ocr_list_projects
-    )
+    mcp.tool(
+        name="ocr_list_projects",
+        description=(
+            "List all registered projects (repositories available for code "
+            "review). Call this first to find the project_id before submitting "
+            "a review. Returns id, display_name, absolute_path, default_branch, "
+            "and current_branch for each."
+        ),
+    )(ocr_list_projects)
     mcp.tool(
         name="ocr_add_project",
         description=(
-            "Register the repository at absolute_path and return its project id. "
-            "Idempotent: returns the existing project if already registered. Use "
-            "it to recover when another tool returns not_found for a project id."
+            "Register a repository for code review by its absolute_path. "
+            "Idempotent: if the repo is already registered, returns the "
+            "existing project. Use this when ocr_submit_review or "
+            "ocr_list_projects returns 'not_found' — register the repo path, "
+            "then retry the review."
         ),
     )(ocr_add_project)
     mcp.tool(
         name="ocr_list_branches",
-        description="List cached branches for a project (optionally refresh/fetch).",
+        description=(
+            "List the branches of a registered project. Useful to find the "
+            "correct branch name (target_ref) before submitting a range review. "
+            "Pass refresh=true to re-scan, fetch=true to also git-fetch remotes."
+        ),
     )(ocr_list_branches)
-    mcp.tool(name="ocr_list_profiles", description="List review profiles.")(
-        ocr_list_profiles
-    )
+    mcp.tool(
+        name="ocr_list_profiles",
+        description=(
+            "List review profiles (OCR configurations: provider, model, "
+            "limits). The built-in Default profile is used automatically when "
+            "profile_id is omitted on review submission."
+        ),
+    )(ocr_list_profiles)
     mcp.tool(
         name="ocr_preview_review",
         description=(
-            "Preview included/excluded files without using the LLM. Omit "
-            "profile_id to use the built-in Default profile, which must have a "
-            "provider and model set."
+            "Preview which files would be included/excluded in a review "
+            "WITHOUT using the LLM (fast, free). Same parameters as "
+            "ocr_submit_review. Useful to check scope before running a full "
+            "review."
         ),
     )(ocr_preview_review)
     mcp.tool(
         name="ocr_submit_review",
         description=(
-            "Submit a review job asynchronously; returns a durable job id "
-            "immediately. mode defaults to 'range'. In range mode base_ref "
-            "defaults to the project's default branch, so only target_ref "
-            "is required. Omit profile_id to use the built-in Default profile, "
-            "which must have a provider and model set; otherwise it returns a "
-            "default_profile_not_configured error."
+            "Submit a code review job. This is the primary tool for reviewing "
+            "code — use it when the user asks to \"review the code\", \"do a "
+            "code review\", \"review my changes\", \"review this branch\", or "
+            "similar.\n\n"
+            "Returns a durable job_id immediately (async). After submitting, "
+            "call ocr_get_job with wait_for_terminal=true to wait for "
+            "completion, then ocr_get_findings to read the results.\n\n"
+            "PARAMETERS:\n"
+            "  project_id  — required. Get it from ocr_list_projects.\n"
+            "  mode        — optional, defaults to 'range'.\n"
+            "  target_ref  — for range mode: the branch to review (e.g. "
+            "'feature/my-branch'). Required.\n"
+            "  base_ref    — for range mode: the comparison base. Auto-defaults "
+            "to the project's main branch, so you can usually omit it.\n"
+            "  commit_ref  — for commit mode: a commit SHA or ref (e.g. 'HEAD').\n"
+            "  pr_number   — for pr mode: the pull request number.\n"
+            "  profile_id  — optional. Omit to use the Default profile.\n\n"
+            "MODES:\n"
+            "  range (default) — compare base_ref..target_ref (two branches). "
+            "Best for reviewing a feature branch against main.\n"
+            "  commit    — review a single commit's diff. Pass commit_ref.\n"
+            "  workspace — review uncommitted working-tree changes. No refs "
+            "needed.\n"
+            "  pr        — review a pull request. Pass pr_number.\n\n"
+            "EXAMPLES:\n"
+            "  Review current branch vs main: mode='range', "
+            "target_ref='feature/x'\n"
+            "  Review latest commit: mode='commit', commit_ref='HEAD'\n"
+            "  Review uncommitted changes: mode='workspace'\n"
+            "  Review PR #42: mode='pr', pr_number=42"
         ),
     )(ocr_submit_review)
     mcp.tool(
         name="ocr_get_job",
         description=(
-            "Get job status and progress. Pass wait_for_terminal=true to block "
-            "server-side until the job reaches a terminal state (completed, "
-            "completed_with_warnings, failed, cancelled, interrupted) or "
-            "timeout_seconds (1-600, default 300) elapses; the response then "
-            "includes 'terminal' and 'wait_expired' flags."
+            "Get the status and progress of a review job. Pass "
+            "wait_for_terminal=true to block until the job finishes "
+            "(completed, failed, cancelled) or the timeout (default 300s) "
+            "elapses. Use this after ocr_submit_review to wait for results. "
+            "The response includes resolved SHAs, summary stats (files "
+            "reviewed, comments, tokens), and error details if it failed."
         ),
     )(ocr_get_job)
     mcp.tool(
-        name="ocr_get_findings", description="Get structured findings for a job."
+        name="ocr_get_findings",
+        description=(
+            "Get the structured code review findings for a completed job. "
+            "Each finding includes the file path, line range, severity "
+            "(high/medium/low), category (bug, security, performance, style), "
+            "the problematic code, and a suggested fix. Call this after "
+            "ocr_get_job shows status 'completed'. Supports pagination via "
+            "limit/offset."
+        ),
     )(ocr_get_findings)
-    mcp.tool(name="ocr_cancel_job", description="Request job cancellation.")(
-        ocr_cancel_job
-    )
-    mcp.tool(name="ocr_retry_job", description="Create a retry of a failed job.")(
-        ocr_retry_job
-    )
     mcp.tool(
-        name="ocr_reorder_job", description="Move a queued job: top | up | down."
+        name="ocr_cancel_job",
+        description="Cancel a running or queued review job.",
+    )(ocr_cancel_job)
+    mcp.tool(
+        name="ocr_retry_job",
+        description=(
+            "Create a retry of a failed review job. The new job uses the same "
+            "project, mode, refs, and profile as the original."
+        ),
+    )(ocr_retry_job)
+    mcp.tool(
+        name="ocr_reorder_job",
+        description=(
+            "Move a queued job's position in the review queue: 'top' (front), "
+            "'up' (one position earlier), or 'down' (one position later)."
+        ),
     )(ocr_reorder_job)
 
     mcp.resource("ocr://projects", description="All registered projects.")(
