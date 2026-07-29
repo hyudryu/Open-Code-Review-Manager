@@ -13,8 +13,10 @@ from fastapi.responses import Response
 from app.api.deps import diagnostics_service, settings_service
 from app.core.config import get_settings
 from app.schemas.jobs import HealthOut, McpStatusOut, SettingsUpdate
+from app.schemas.system import DirBrowseOut
 from app.services.deps import get_ocr_adapter
 from app.services.settings import DiagnosticsService, SettingsService
+from app.services.system_browse import SystemBrowseService
 
 router = APIRouter(tags=["system"])
 
@@ -187,3 +189,15 @@ async def diagnostics_bundle(
 @router.get("/system/python")
 async def python_info() -> dict[str, str]:
     return {"version": sys.version, "executable": sys.executable}
+
+
+@router.get("/system/browse", response_model=DirBrowseOut)
+async def browse_directory(path: str | None = None) -> DirBrowseOut:
+    """List subdirectories of a host path for the folder picker.
+
+    A browser cannot read absolute filesystem paths from a file picker, so the
+    picker browses the backend host instead. Returns real directories so the
+    chosen absolute path can be pasted into the form.
+    """
+
+    return await SystemBrowseService().browse(path)

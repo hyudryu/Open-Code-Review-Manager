@@ -542,3 +542,65 @@ async def test_profile_template_path_roundtrip(client) -> None:
     )
     assert response.status_code == 200
     assert response.json()["template_path"] == "templates/v2.json"
+
+
+async def test_browse_directory_lists_subdirs_only(client, tmp_path) -> None:
+    # Use a dedicated dir so fixture-created siblings (data/, repo/) don't
+    # leak into the assertion.
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "alpha").mkdir()
+    (root / "beta").mkdir()
+    (root / "alpha" / "nested").mkdir()
+    (root / "a-file.txt").write_text("hi")  # files must be excluded
+    (root / ".hidden-dir").mkdir()  # dot-dirs must be excluded
+
+    response = await client.get("/api/v1/system/browse", params={"path": str(root)})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] == str(root)
+    names = {e["name"] for e in body["entries"]}
+    assert names == {"alpha", "beta"}
+    # Entries point under the browsed root.
+    for entry in body["entries"]:
+        assert entry["path"].replace("\\", "/").startswith(
+            str(root).replace("\\", "/")
+        )
+    assert body["truncated"] is False
+
+
+async def test_browse_directory_default_targets_home(client, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
+    (tmp_path / "visible").mkdir()
+
+    response = await client.get("/api/v1/system/browse")
+    assert response.status_code == 200
+    assert response.json()["path"] == str(tmp_path)
+
+
+async def test_browse_directory_provides_parent(client, tmp_path) -> None:
+    child = tmp_path / "child"
+    child.mkdir()
+
+    response = await client.get("/api/v1/system/browse", params={"path": str(child)})
+    assert response.status_code == 200
+    assert response.json()["parent"] == str(tmp_path)
+
+
+async def test_browse_directory_nonexistent_is_422(client, tmp_path) -> None:
+    response = await client.get(
+        "/api/v1/system/browse", params={"path": str(tmp_path / "nope")}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_browse_directory_file_is_422(client, tmp_path) -> None:
+    file = tmp_path / "not-a-dir.txt"
+    file.write_text("x")
+
+    response = await client.get("/api/v1/system/browse", params={"path": str(file)})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+
