@@ -21,10 +21,61 @@ mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("image/x-icon", ".ico")
 mimetypes.add_type("font/woff2", ".woff2")
 
+from starlette.middleware.cors import CORSMiddleware as _BaseCORSMiddleware
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+
+class CORSMiddleware(_BaseCORSMiddleware):
+    """CORS middleware that dynamically echoes back the origin when allow_all_origins=True.
+    
+    This is necessary because when allow_credentials=True, you cannot use "*"
+    as the wildcard origin - you must explicitly list each origin or dynamically
+    echo back the requesting origin.
+    """
+    
+    def __init__(self, app, allow_origins, allow_credentials, allow_methods, allow_headers, allow_all_origins=False):
+        self._allow_all_origins = allow_all_origins
+        # For allow_all_origins, we pass a wildcard origin list but handle credentials specially
+        if allow_all_origins:
+            # Use a wildcard origin list, but we'll override the send method to handle credentials
+            super().__init__(
+                app=app,
+                allow_origins=["*"],
+                allow_methods=allow_methods,
+                allow_headers=allow_headers,
+                allow_credentials=allow_credentials,
+            )
+        else:
+            super().__init__(
+                app=app,
+                allow_origins=allow_origins,
+                allow_methods=allow_methods,
+                allow_headers=allow_headers,
+                allow_credentials=allow_credentials,
+            )
+    
+    async def send(self, message, send, request_headers):
+        """Override send to ensure CORS headers are set when allow_all_origins=True."""
+        if message["type"] != "http.response.start":
+            await send(message)
+            return
+        
+        from starlette.datastructures import MutableHeaders
+        headers = MutableHeaders(scope=message)
+        headers.update(self.simple_headers)
+        origin = request_headers.get("Origin")
+        
+        # If credentials are allowed and allow_all_origins, echo back the specific origin
+        if self._allow_all_origins and self.allow_credentials and origin:
+            headers["access-control-allow-origin"] = origin
+            headers["access-control-allow-credentials"] = "true"
+        
+        await send(message)
+
+
+from app.api.errors import install_error_handlers
 
 from app.api.errors import install_error_handlers
 from app.api.security import CSRFMiddleware
@@ -142,6 +193,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        allow_all_origins=settings.allow_all_origins,
     )
     install_error_handlers(app)
     app.include_router(api_router)
