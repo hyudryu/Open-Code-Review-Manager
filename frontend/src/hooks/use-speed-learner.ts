@@ -8,8 +8,23 @@ import { useJobs, useQueue } from "../api/hooks";
 import { estimateActiveJobETA, learn, estimateQueueETA } from "../lib/speed-learner";
 import { TERMINAL_STATUSES, type Job } from "../types";
 
+/**
+ * Re-rendering timestamp that ticks every `intervalMs`. Used so the active-job
+ * ETA visibly counts down between file-completion events (it is recomputed
+ * from started_at → now on each tick).
+ */
+function useNow(intervalMs = 5_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 export function useSpeedLearner() {
   const [learnerRevision, setLearnerRevision] = useState(0);
+  const now = useNow(5_000);
   const queue = useQueue({ refetchInterval: 6_000 });
   const recent = useJobs({ limit: 15 });
 
@@ -48,9 +63,13 @@ export function useSpeedLearner() {
   }, [completedJobs]);
 
   const estimateActive = useCallback(
-    (job: Job, completedFiles: number, totalFiles: number | null) =>
-      estimateActiveJobETA(job, completedFiles, totalFiles),
-    [learnerRevision],
+    (job: Job, completedFiles: number, totalFiles: number | null): string | null => {
+      const elapsedMs = job.started_at
+        ? Math.max(0, now - new Date(job.started_at).getTime())
+        : 0;
+      return estimateActiveJobETA(job, completedFiles, totalFiles, elapsedMs);
+    },
+    [learnerRevision, now],
   );
 
   // Compute ETA for the queue
