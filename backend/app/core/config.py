@@ -98,14 +98,21 @@ class Settings(BaseSettings):
 
     # --- security ----------------------------------------------------------
     csrf_token: str | None = None  # generated at startup when unset
-    allowed_origins: list[str] = Field(
-        default_factory=lambda: [
+    allowed_origins: list[str] = Field(default_factory=list)
+    allow_all_origins: bool = False  # When true, accepts any origin (for network access)
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def _parse_allowed_origins(cls, value: object) -> list[str]:
+        if isinstance(value, list) and len(value) > 0:
+            return value
+        # If no explicit list from env, use built-in defaults
+        return [
             f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}",      # backend self
             f"http://localhost:{_DEFAULT_PORT}",            # backend self
             f"http://{_DEFAULT_HOST}:5173",                # Vite dev server
             f"http://localhost:5173",                      # Vite dev server
         ]
-    )
 
     @field_validator("allowed_roots", mode="before")
     @classmethod

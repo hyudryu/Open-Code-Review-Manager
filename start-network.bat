@@ -68,7 +68,10 @@ echo [start-network] Ctrl-C to stop.
 
 rem Launch the server bound to 0.0.0.0 (all interfaces) on the chosen port
 rem with a separate data directory to avoid instance lock conflicts
+rem Set OCR_CC_ALLOW_ALL_ORIGINS=true to accept CORS from any origin
+rem (needed when accessed from other machines on the network)
 set "OCR_CC_DATA_DIR=%NETWORK_DATA_DIR%"
+set "OCR_CC_ALLOW_ALL_ORIGINS=true"
 "%VENV_PY%" -m app --host 0.0.0.0 --port %PORT%
 
 endlocal
