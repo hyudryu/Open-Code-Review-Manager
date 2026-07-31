@@ -18,6 +18,7 @@ import {
   useProjects,
   useQueue,
   useReorderQueue,
+  useResumeJob,
   useResumePausedJob,
   useResumeQueue,
   useRetryJob,
@@ -101,6 +102,7 @@ export function QueuePage() {
   const moveJob = useMoveJob();
   const cancelJob = useCancelJob();
   const retryJob = useRetryJob();
+  const resumeJob = useResumeJob();
   const duplicateJob = useDuplicateJob();
   const pauseJob = usePauseJob();
   const resumePaused = useResumePausedJob();
@@ -256,6 +258,23 @@ export function QueuePage() {
       },
       ...(job.status === "failed" || job.status === "cancelled" || job.status === "interrupted"
         ? [
+            // Resume continues from the job's OCR session checkpoint
+            // (--resume <session_id>); only offered when a session exists,
+            // i.e. the job actually started. Jobs cancelled while queued have
+            // no session and only get Retry.
+            ...(job.ocr_session_id
+              ? [
+                  {
+                    key: "resume",
+                    label: "Resume",
+                    onSelect: () =>
+                      void resumeJob
+                        .mutateAsync({ id: job.id })
+                        .then(() => toast.success("Resume queued"))
+                        .catch((e: Error) => toast.error("Resume failed", e.message)),
+                  },
+                ]
+              : []),
             {
               key: "retry",
               label: "Retry",
