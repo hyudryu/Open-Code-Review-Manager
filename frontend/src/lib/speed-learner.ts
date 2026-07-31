@@ -199,19 +199,14 @@ export function estimateQueueETA(
   };
 }
 
-/** Estimate the remaining runtime of one active job from completed file count. */
-export function estimateActiveJobETA(
-  job: Job,
-  completedFiles: number,
-  totalFiles: number | null,
-): string | null {
-  if (totalFiles === null) return null;
-  const remainingFiles = Math.max(0, totalFiles - completedFiles);
-  if (remainingFiles === 0) return "under 1 s";
-
+/**
+ * Historical per-file timing for a job's (model, concurrency) bucket — the
+ * matching bucket average if any, otherwise the global average, otherwise 0
+ * (no learning yet). Extracted so both the live hook and tests can reuse it.
+ */
+export function historicalPerFile(job: Job): number {
   const state = loadState();
-  if (state.globalAvgPerFile <= 0) return null;
-
+  if (state.globalAvgPerFile <= 0) return 0;
   const config = job.configuration_snapshot_json as Record<string, unknown> | null;
   const model = config?.model as Record<string, unknown> | null | undefined;
   const settings = config?.settings as Record<string, unknown> | null | undefined;
@@ -220,8 +215,86 @@ export function estimateActiveJobETA(
   const bucket = state.buckets.find(
     (candidate) => candidate.key === `${modelKey ?? "none"}|${concurrency}`,
   );
-  const averagePerFile = bucket?.avg_elapsed_per_file ?? state.globalAvgPerFile;
-  return formatMillis(remainingFiles * averagePerFile * state.multiplier);
+  return bucket?.avg_elapsed_per_file ?? state.globalAvgPerFile;
+}
+
+/** Weight given to the historical average before any files complete. */
+const HISTORICAL_PRIOR_WEIGHT = 3;
+
+/**
+ * Estimate the remaining runtime of one active job, blending its own observed
+ * pace with the historical per-file average learned from prior jobs.
+ *
+ * Early on (few completions) the historical average dominates so the estimate
+ * is stable; as files complete the job's own pace takes over and the estimate
+ * converges to the truth — so "5 h at the start" corrects itself once we know
+ * how long the first few files actually took.
+ *
+ * @returns `remaining` (formatted) plus the blended `perFile` ms (0 if unknown).
+ *          `remaining` is `null` until at least one file has completed.
+ */
+export function estimateAdaptiveETA(params: {
+  completedFiles: number;
+  totalFiles: number | null;
+  elapsedMs: number;
+  historicalPerFile: number;
+}): { remaining: string | null; perFile: number } {
+  const { completedFiles, totalFiles, elapsedMs, historicalPerFile } = params;
+  if (totalFiles === null || totalFiles <= 0) return { remaining: null, perFile: 0 };
+
+  const remainingFiles = Math.max(0, totalFiles - completedFiles);
+  if (remainingFiles === 0) return { remaining: "under 1 s", perFile: 0 };
+
+  // Need at least one completion to measure the job's own pace.
+  if (completedFiles <= 0 || elapsedMs <= 0) return { remaining: null, perFile: 0 };
+
+  const observedPerFile = elapsedMs / completedFiles;
+
+  let blended: number;
+  if (historicalPerFile <= 0) {
+    // No history yet — fall back to the job's own observed pace. This fixes
+    // the old behaviour where a first-ever review showed "Estimating…" the
+    // whole time.
+    blended = observedPerFile;
+  } else {
+    // Weighted average: the historical average counts as HISTORICAL_PRIOR_WEIGHT
+    // pseudo-observations, the observed pace counts one-for-one per completion.
+    blended =
+      (historicalPerFile * HISTORICAL_PRIOR_WEIGHT + observedPerFile * completedFiles) /
+      (HISTORICAL_PRIOR_WEIGHT + completedFiles);
+  }
+
+  return { remaining: formatMillis(remainingFiles * blended), perFile: blended };
+}
+
+/**
+ * Estimate the remaining runtime of one active job from completed file count.
+ *
+ * @param job - The running job
+ * @param completedFiles - Files already reviewed (completed or failed)
+ * @param totalFiles - Total reviewable files, or null if the inventory is unknown
+ * @param elapsedMs - Elapsed time since the job started (started_at → now)
+ */
+export function estimateActiveJobETA(
+  job: Job,
+  completedFiles: number,
+  totalFiles: number | null,
+  elapsedMs = 0,
+): string | null {
+  if (totalFiles === null) return null;
+  if (completedFiles <= 0 || elapsedMs <= 0) {
+    // No observed pace yet: fall back to the historical-only estimate.
+    const remainingFiles = Math.max(0, totalFiles - completedFiles);
+    if (remainingFiles === 0) return "under 1 s";
+    const perFile = historicalPerFile(job);
+    return perFile > 0 ? formatMillis(remainingFiles * perFile) : null;
+  }
+  return estimateAdaptiveETA({
+    completedFiles,
+    totalFiles,
+    elapsedMs,
+    historicalPerFile: historicalPerFile(job),
+  }).remaining;
 }
 
 /**

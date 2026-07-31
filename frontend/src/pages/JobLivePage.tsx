@@ -139,9 +139,17 @@ export function JobLivePage() {
             <span className={layout.small}>
               {live.phase ? `Phase: ${phaseLabel(live.phase)} · ` : ""}
               {completedCount} of {totalFiles ?? "…"} files
+              {totalFiles ? ` · ${progress.percent}%` : ""}
             </span>
           </div>
-          <div className={styles.progressBar} aria-hidden="true">
+          <div
+            className={styles.progressBar}
+            role="progressbar"
+            aria-label={`Review progress: ${completedCount} of ${totalFiles ?? "unknown"} files`}
+            aria-valuemin={0}
+            aria-valuemax={totalFiles && totalFiles > 0 ? totalFiles : 1}
+            aria-valuenow={completedCount}
+          >
             <div
               className={styles.progressFill}
               style={{

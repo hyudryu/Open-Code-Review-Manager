@@ -192,13 +192,24 @@ function ActiveReviewActivity({
           style={{ width: `${progress.percent}%` }}
         />
       </div>
-      <p className={layout.small} style={{ marginTop: 4, color: "var(--text-tertiary)" }}>
-        {progressLabel}
+      <p
+        className={layout.small}
+        style={{
+          marginTop: 4,
+          color: "var(--text-tertiary)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <span>{progressLabel}</span>
+        {progress.total !== null ? <span>{progress.percent}%</span> : null}
       </p>
       <p
         className={layout.small}
         style={{ marginTop: 2, color: "var(--text-tertiary)" }}
-        title="Estimated from completed reviews using the same model and concurrency when available."
+        title="Estimated from this review's observed pace, blended with prior reviews using the same model and concurrency when available."
       >
         {estimatedRemaining ? `Estimated time remaining: ~${estimatedRemaining}` : "Estimating time remaining…"}
       </p>
