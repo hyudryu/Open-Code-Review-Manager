@@ -1,7 +1,7 @@
 /** Overview (SPEC §20) — decision-focused, varied layout, no stat-card grid. */
 
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   useCancelJob,
   useJobs,
@@ -224,6 +224,25 @@ function ActiveReviewActivity({
   );
 }
 
+/**
+ * A live, self-ticking "X elapsed" label. Re-renders every second so the
+ * duration counts up in real time without depending on any other timer or
+ * refetch. Stops ticking once `endedAt` is provided (terminal job).
+ */
+function ElapsedSince({ startedAt, endedAt }: { startedAt: string; endedAt?: string | null }) {
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (endedAt) return undefined; // terminal — no need to keep ticking
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [endedAt]);
+  return (
+    <span className={layout.small} style={{ color: "var(--text-tertiary)" }}>
+      {formatDuration(startedAt, endedAt)} elapsed
+    </span>
+  );
+}
+
 /** Provider row with model selector. Reads/writes the Default profile's model. */
 function ProviderRow({
   provider,
@@ -410,9 +429,7 @@ export function OverviewPage() {
                       </Link>
                       <div className={layout.row} style={{ gap: 12 }}>
                         {job.started_at ? (
-                          <span className={layout.small} style={{ color: "var(--text-tertiary)" }}>
-                            {formatDuration(job.started_at)} elapsed
-                          </span>
+                          <ElapsedSince startedAt={job.started_at} />
                         ) : null}
                         <StatusDot
                           tone={STATUS_TONE[job.status]}
