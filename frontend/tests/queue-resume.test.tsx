@@ -2,7 +2,8 @@
  * Cancelled-job actions menu: a "Resume" item (continue the OCR session from
  * its checkpoint) appears only when the job actually started and recorded an
  * ocr_session_id. Jobs cancelled while queued never started, so they only get
- * Retry.
+ * Retry. Full-file scans also only get Retry because OCR scan sessions cannot
+ * be resumed.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -137,6 +138,20 @@ describe("QueuePage cancelled-job menu", () => {
     openMenu(trigger);
 
     // Retry is still offered, but Resume is not.
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("menuitem", { name: "Resume" })).not.toBeInTheDocument();
+  });
+
+  it("hides Resume for scans even when OCR recorded a session", async () => {
+    job = makeJob({ mode: "scan", ocr_session_id: "scan-session-123" });
+
+    renderQueuePage();
+
+    await screen.findByText(/Recently completed/i);
+    openMenu(screen.getByRole("button", { name: "Job actions" }));
+
     await waitFor(() => {
       expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
     });

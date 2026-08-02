@@ -20,9 +20,9 @@ rather than reviewing the code itself.
 | `ocr_list_branches` | Cached branches for a project | `project_id`, `refresh?`, `fetch?` |
 | `ocr_list_profiles` | List review profiles | — |
 | `ocr_preview_review` | Preview included/excluded files (no LLM) | `project_id`, `mode`, refs, `pr_number?` |
-| `ocr_submit_review` | **CODE REVIEW tool** — reviews code for bugs, security issues, and quality problems. Use when the user asks to review code, check changes, or audit a diff. | `project_id`, `mode` (`range`/`commit`/`workspace`/`pr`), `base_ref`/`target_ref`/`commit_ref`, `pr_number?`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
-| `ocr_get_job` | Return the current code review status immediately. | `job_id` |
-| `ocr_get_job_results` | Block until terminal, then return the complete JSON result export. | `job_id`, `timeout_seconds?` |
+| `ocr_submit_review` | **CODE REVIEW tool** — reviews code for bugs, security issues, and quality problems. Use when the user asks to review code, check changes, or audit a diff. | `project_id`, `mode` (`range`/`commit`/`workspace`/`pr`/`scan`), `base_ref`/`target_ref`/`commit_ref`, `pr_number?`, `profile_id?`, `background?`, `exclude_patterns?`, `priority?` |
+| `ocr_get_job` | Return the current code review status and available comments immediately. Accepts a manager job ID or OCR session ID. | `job_id` |
+| `ocr_get_job_results` | Accept a manager job ID or OCR session ID, block until terminal, then return the complete JSON result export and comments. | `job_id`, `timeout_seconds?` |
 | `ocr_get_findings` | Get code review results — the bugs, issues, and findings found by the review. | `job_id`, `user_state?`, `limit?` |
 | `ocr_cancel_job` | Cancel a running or queued review job | `job_id` |
 | `ocr_retry_job` | Create a retry of a failed/cancelled job | `job_id` |
@@ -32,8 +32,10 @@ rather than reviewing the code itself.
 
 `ocr_submit_review` does not block on the review. It persists the job and
 returns its id; the queue worker picks it up. `ocr_get_job` is always a quick,
-non-blocking status read. `ocr_get_job_results` blocks asynchronously until the
-job reaches a terminal status and then returns the complete JSON export. Its
+non-blocking status read. Both status/result tools accept that manager job ID
+or the OCR session ID shown in the UI, and include available review comments.
+`ocr_get_job_results` blocks asynchronously until the job reaches a terminal
+status and then returns the complete JSON export. Its
 default `timeout_seconds=0` waits indefinitely; a positive timeout returns
 `wait_expired=true` without a partial `result` object.
 

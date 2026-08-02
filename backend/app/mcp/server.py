@@ -170,7 +170,8 @@ _MODE_GUIDE = (
     "target_ref is required.\n"
     "  commit    — review a single commit_ref or SHA (e.g. \"HEAD\").\n"
     "  workspace — review uncommitted changes in the working tree. No refs needed.\n"
-    "  pr        — review pull request pr_number head vs its base."
+    "  pr        — review pull request pr_number head vs its base.\n"
+    "  scan      — scan every supported file at the project's current commit."
 )
 
 
@@ -241,6 +242,7 @@ def _job_payload(job: models.ReviewJob) -> dict[str, Any]:
         "id": job.id,
         "status": job.status,
         "status_message": job.status_message,
+        "error_code": job.error_code,
         "mode": job.mode,
         "source": job.source,
         "project_id": job.project_id,
@@ -264,17 +266,36 @@ def _job_payload(job: models.ReviewJob) -> dict[str, Any]:
     }
 
 
+def _finding_payload(finding: models.Finding) -> dict[str, Any]:
+    return {
+        "path": finding.path,
+        "start_line": finding.start_line,
+        "end_line": finding.end_line,
+        "content": finding.content,
+        "existing_code": finding.existing_code,
+        "suggestion_code": finding.suggestion_code,
+        "category": finding.category,
+        "severity": finding.severity,
+        "user_state": finding.user_state,
+    }
+
+
 async def ocr_get_job(job_id: str) -> dict[str, Any]:
-    """Return the current job status immediately without waiting."""
+    """Return status and comments for a manager job id or OCR session id."""
 
     factory = get_session_factory()
     async with factory() as session:
         service = JobService(session)
         try:
-            job = await service.get(job_id)
+            job = await service.get_by_job_or_session_id(job_id)
         except ServiceError as exc:
             return _error_payload(exc)
         payload = _job_payload(job)
+        findings, total = await FindingService(session).list_for_job(
+            job.id, limit=10_000
+        )
+        payload["comments_count"] = total
+        payload["comments"] = [_finding_payload(finding) for finding in findings]
 
     return payload
 
@@ -294,10 +315,11 @@ async def ocr_get_job_results(
     if "error" in payload:
         return payload
 
+    resolved_job_id = payload["id"]
     terminal = payload["status"] in TERMINAL_STATUSES
     if not terminal:
-        terminal = await wait_for_job_terminal(job_id, timeout_seconds)
-        payload = await ocr_get_job(job_id)
+        terminal = await wait_for_job_terminal(resolved_job_id, timeout_seconds)
+        payload = await ocr_get_job(resolved_job_id)
         if "error" in payload:
             return payload
         terminal = terminal or payload["status"] in TERMINAL_STATUSES
@@ -311,7 +333,7 @@ async def ocr_get_job_results(
     async with factory() as session:
         service = JobService(session)
         try:
-            content, _media, _filename = await service.export(job_id, "json")
+            content, _media, _filename = await service.export(resolved_job_id, "json")
         except ServiceError as exc:
             return _error_payload(exc)
     payload["result"] = json.loads(content)
@@ -333,20 +355,7 @@ async def ocr_get_findings(
         return {
             "job_id": job_id,
             "total": total,
-            "findings": [
-                {
-                    "path": f.path,
-                    "start_line": f.start_line,
-                    "end_line": f.end_line,
-                    "content": f.content,
-                    "existing_code": f.existing_code,
-                    "suggestion_code": f.suggestion_code,
-                    "category": f.category,
-                    "severity": f.severity,
-                    "user_state": f.user_state,
-                }
-                for f in findings
-            ],
+            "findings": [_finding_payload(f) for f in findings],
         }
 
 
@@ -543,7 +552,8 @@ def build_mcp_server() -> FastMCP:
             "  to the project's main branch; only target_ref is required.\n"
             "  commit    — review a single commit (commit_ref='HEAD' for latest).\n"
             "  workspace — review uncommitted working-tree changes.\n"
-            "  pr        — review a GitHub pull request by number.\n\n"
+            "  pr        — review a GitHub pull request by number.\n"
+            "  scan      — scan every supported file at the current commit.\n\n"
             "PROFILES:\n"
             "  Omit profile_id to use the built-in Default profile. If you get "
             "  default_profile_not_configured, tell the user to set a provider "
@@ -628,7 +638,8 @@ def build_mcp_server() -> FastMCP:
             "  commit    — review a single commit's diff. Pass commit_ref.\n"
             "  workspace — review uncommitted working-tree changes. No refs "
             "needed.\n"
-            "  pr        — review a pull request. Pass pr_number.\n\n"
+            "  pr        — review a pull request. Pass pr_number.\n"
+            "  scan      — scan every supported file at the current commit.\n\n"
             "RESPONSE:\n"
             "  job_id          — the durable job identifier\n"
             "  status          — 'queued' on success\n"
@@ -644,14 +655,16 @@ def build_mcp_server() -> FastMCP:
             "target_ref='feature/x'\n"
             "  Review latest commit: mode='commit', commit_ref='HEAD'\n"
             "  Review uncommitted changes: mode='workspace'\n"
-            "  Review PR #42: mode='pr', pr_number=42"
+            "  Review PR #42: mode='pr', pr_number=42\n"
+            "  Scan the current repository: mode='scan'"
         ),
     )(ocr_submit_review)
     mcp.tool(
         name="ocr_get_job",
         description=(
-            "Return the current code review status immediately. Use for "
-            "lightweight polling and progress checks; this tool never waits.\n\n"
+            "Return the current code review status and any available comments "
+            "immediately. Pass either the manager job id or the OCR session id. "
+            "Use for lightweight polling and progress checks; this tool never waits.\n\n"
             "RESPONSE FIELDS:\n"
             "  status          — queued|preparing|running|completed|completed_with_warnings|failed|cancelled|interrupted\n"
             "  status_message  — human-readable detail or error (null when ok)\n"
@@ -664,13 +677,15 @@ def build_mcp_server() -> FastMCP:
             "                    }\n"
             "  resolved_shas   — {base_sha, target_sha, commit_sha} resolved at queue time\n"
             "  warnings        — list of warning objects\n"
-            "  ocr_session_id  — OCR session id (for log inspection)"
+            "  ocr_session_id  — OCR session id (for log inspection)\n"
+            "  comments        — review comments/findings available for the job"
         ),
     )(ocr_get_job)
     mcp.tool(
         name="ocr_get_job_results",
         description=(
-            "Wait until a code review reaches a terminal state, then return "
+            "Pass either the manager job id or the OCR session id. Wait until "
+            "the code review reaches a terminal state, then return "
             "the complete JSON export, including summary, findings, warnings, "
             "resolved refs, and configuration snapshot. This is the blocking "
             "counterpart to the quick ocr_get_job status call. "

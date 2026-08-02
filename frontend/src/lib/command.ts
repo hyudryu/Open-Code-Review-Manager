@@ -37,7 +37,8 @@ export function buildCommandPreview(
   const caps = ocr?.capabilities;
   const profile = input.profile ?? null;
 
-  const argv: string[] = [executable, "review", "--repo", input.repoPath];
+  const isScan = input.mode === "scan";
+  const argv: string[] = [executable, isScan ? "scan" : "review", "--repo", input.repoPath];
 
   if (input.mode === "range" || input.mode === "pr") {
     // PR jobs review PR-head vs PR-base: same argv as a range review over the
@@ -65,20 +66,24 @@ export function buildCommandPreview(
       argv.push("--rule", profile.rule_file_path);
     if (profile.tools_file_path && caps?.tools_flag !== false)
       argv.push("--tools", profile.tools_file_path);
-    if (caps?.plan_mode) {
+    if (isScan) {
+      if (profile.plan_mode === "never") argv.push("--no-plan");
+      if (profile.max_tokens)
+        argv.push("--max-tokens-budget", String(profile.max_tokens));
+    } else if (caps?.plan_mode) {
       if (profile.plan_mode && profile.plan_mode !== "auto")
         argv.push("--plan-mode", profile.plan_mode);
       if (profile.plan_threshold_lines)
         argv.push("--plan-threshold", String(profile.plan_threshold_lines));
       if (profile.max_tokens) argv.push("--max-tokens", String(profile.max_tokens));
     }
-    if (caps?.template_override && profile.template_path)
+    if (!isScan && caps?.template_override && profile.template_path)
       argv.push("--template", profile.template_path);
   }
 
   if (input.model) argv.push("--model", input.model);
   if (input.background) argv.push("--background", input.background);
-  if (input.backgroundFile) argv.push("--background-file", input.backgroundFile);
+  if (!isScan && input.backgroundFile) argv.push("--background-file", input.backgroundFile);
 
   const excludes =
     input.excludePatterns?.length

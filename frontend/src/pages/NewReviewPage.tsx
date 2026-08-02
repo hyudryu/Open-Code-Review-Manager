@@ -40,9 +40,9 @@ import type { Branch, JobMode, PullRequest } from "../types";
 import layout from "../layouts/layout.module.css";
 import styles from "./pages.module.css";
 
-const schema = z.object({
+export const newReviewSchema = z.object({
   project_id: z.string().min(1, "Choose a project."),
-  mode: z.enum(["range", "commit", "workspace", "pr"]),
+  mode: z.enum(["range", "commit", "workspace", "pr", "scan"]),
   profile_id: z.string(),
   background: z.string(),
   background_file: z.string(),
@@ -52,7 +52,7 @@ const schema = z.object({
   webhook_endpoint_id: z.string(),
 });
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<typeof newReviewSchema>;
 
 function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
@@ -81,7 +81,7 @@ export function NewReviewPage() {
     handleSubmit,
     formState: { errors },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(newReviewSchema),
     defaultValues: {
       project_id: preselectedProject,
       mode: "range",
@@ -421,8 +421,8 @@ export function NewReviewPage() {
           {mode === "scan" ? (
             <div className={styles.warningBox} role="note">
               <span>
-                Scan reviews the entire repository (all branches and files). This is useful
-                for a comprehensive code review without specifying a particular range.
+                Scan reviews every supported file at the project's current commit. It runs
+                from an isolated snapshot, so later workspace changes cannot alter the job.
               </span>
             </div>
           ) : null}

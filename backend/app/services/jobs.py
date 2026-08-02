@@ -50,6 +50,27 @@ class JobService(ServiceBase):
             raise NotFoundError("Review job", job_id)
         return job
 
+    async def get_by_job_or_session_id(self, identifier: str) -> models.ReviewJob:
+        """Resolve a manager job id or an OCR session id to a review job.
+
+        A resumed OCR session can be associated with more than one manager
+        job, so session-id lookups intentionally return the newest job.
+        """
+
+        job = await self.session.get(models.ReviewJob, identifier)
+        if job is not None:
+            return job
+        result = await self.session.execute(
+            select(models.ReviewJob)
+            .where(models.ReviewJob.ocr_session_id == identifier)
+            .order_by(models.ReviewJob.queued_at.desc())
+            .limit(1)
+        )
+        job = result.scalar_one_or_none()
+        if job is None:
+            raise NotFoundError("Review job or OCR session", identifier)
+        return job
+
     async def list(
         self,
         *,
@@ -150,6 +171,14 @@ class JobService(ServiceBase):
                     )
                 shas["commit_sha"] = await self.git.resolve_ref(
                     project.absolute_path, commit_ref
+                )
+            elif mode == "scan":
+                # A full-file scan still needs an immutable source snapshot.
+                # Resolve HEAD at queue time and run OCR from a detached
+                # per-job worktree so later branch changes cannot alter it.
+                scan_ref = "HEAD"
+                shas["target_sha"] = await self.git.resolve_ref(
+                    project.absolute_path, scan_ref
                 )
         except RefValidationError as exc:
             raise ValidationFailedError(
@@ -619,6 +648,11 @@ class JobService(ServiceBase):
         profile_id: str | None = None,
         exclude_patterns: list[str] | None = None,
     ):
+        if mode not in models.JOB_MODES:
+            raise ValidationFailedError(
+                f"Unknown review mode '{mode}'.",
+                detail=f"Supported: {', '.join(models.JOB_MODES)}.",
+            )
         project = await self.session.get(models.Project, project_id)
         if project is None:
             raise NotFoundError("Project", project_id)
@@ -797,6 +831,11 @@ class JobService(ServiceBase):
         """New job resuming the original's OCR session (SPEC §12 Resume)."""
 
         original = await self.get(job_id)
+        if original.mode == "scan":
+            raise ConflictError(
+                "Full-file scan jobs do not support session resume.",
+                next_action="Retry the scan to start a new OCR session.",
+            )
         if not original.ocr_session_id:
             raise ConflictError(
                 "This job has no resumable OCR session.",

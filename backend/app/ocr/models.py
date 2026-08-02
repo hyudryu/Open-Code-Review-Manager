@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ReviewMode = Literal["range", "commit", "workspace", "pr"]
+ReviewMode = Literal["range", "commit", "workspace", "pr", "scan"]
 PlanMode = Literal["auto", "always", "never"]
 
 
@@ -70,7 +70,7 @@ class ReviewJobContext(BaseModel):
     """
 
     mode: ReviewMode
-    repo_path: str  # worktree for range/commit; real path for workspace
+    repo_path: str  # worktree for range/commit/pr/scan; real path for workspace
     base_ref: str | None = None
     target_ref: str | None = None
     commit_ref: str | None = None

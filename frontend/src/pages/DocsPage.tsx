@@ -182,8 +182,9 @@ export function DocsPage() {
             <dt>Review modes</dt>
             <dd>
               <Code>range</Code> compares two refs, <Code>commit</Code> reviews one
-              commit, <Code>workspace</Code> reviews uncommitted changes, and{" "}
-              <Code>pr</Code> reviews an open pull request head against its base.
+              commit, <Code>workspace</Code> reviews uncommitted changes, <Code>scan</Code>{" "}
+              reviews every supported file at the current commit, and <Code>pr</Code>{" "}
+              reviews an open pull request head against its base.
               PRs are listed from the GitHub API when the project's remote is a GitHub
               URL (optional <Code>OCR_CC_GITHUB_TOKEN</Code> for private repos and
               higher rate limits), with a{" "}
@@ -270,8 +271,9 @@ export function DocsPage() {
             The <Link to="/mcp">MCP tab</Link> shows live server status, every tool,
             resource, and prompt, and a copy-ready client configuration. Submission is
             asynchronous: <Code>ocr_submit_review</Code> returns a durable job id; use{" "}
-            <Code>ocr_get_job</Code> for status or <Code>ocr_get_job_results</Code> to
-            wait for the complete export.
+            <Code>ocr_get_job</Code> for status and available comments or{" "}
+            <Code>ocr_get_job_results</Code> to wait for the complete export. Both accept
+            the manager job ID or the OCR session ID shown on review pages.
           </P>
         </Section>
 

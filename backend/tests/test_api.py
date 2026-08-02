@@ -499,6 +499,32 @@ async def test_job_validation_error_shape(client, repo) -> None:
     assert error["next_action"]
 
 
+async def test_scan_preview_and_queue_over_rest(client, repo) -> None:
+    headers = csrf(client)
+    response = await client.post(
+        "/api/v1/projects", json={"absolute_path": str(repo)}, headers=headers
+    )
+    project_id = response.json()["id"]
+
+    response = await client.post(
+        "/api/v1/jobs/preview",
+        json={"project_id": project_id, "mode": "scan"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["reviewable_count"] == 1
+
+    response = await client.post(
+        "/api/v1/jobs",
+        json={"project_id": project_id, "mode": "scan"},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    job = response.json()
+    assert job["mode"] == "scan"
+    assert job["generated_command_json"]["argv"][1] == "scan"
+
+
 async def test_provider_health_endpoint(client, repo) -> None:
     """GET /providers/{id}/health is read-only (no CSRF) and surfaces a
     validation error when the provider has no base URL. The auth-header and

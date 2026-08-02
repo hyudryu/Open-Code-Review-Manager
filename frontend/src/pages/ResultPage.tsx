@@ -288,6 +288,13 @@ export function ResultPage() {
               ) : null}
               <dt>OCR version</dt>
               <dd>{j.ocr_version ?? "—"}</dd>
+              <dt>Job ID</dt>
+              <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <code className={layout.monoPath} style={{ fontSize: 12 }}>
+                  {j.id}
+                </code>
+                <CopyButton text={j.id} aria-label="Copy job id" />
+              </dd>
               <dt>Session</dt>
               <dd style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <code className={layout.monoPath} style={{ fontSize: 12 }}>

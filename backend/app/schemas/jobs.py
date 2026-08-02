@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_serializer
 
 from app.schemas.projects import ORMModel
 
-JobMode = Literal["range", "commit", "workspace", "pr"]
+JobMode = Literal["range", "commit", "workspace", "pr", "scan"]
 JobSource = Literal["web", "mcp", "api", "retry"]
 FindingState = Literal["unreviewed", "accepted", "dismissed", "needs_followup"]
 
