@@ -372,6 +372,41 @@ def test_write_job_config_excludes_secrets(adapter: OCRAdapter, tmp_path: Path) 
     assert (home.resolve() / ".opencodereview" / "sessions").is_dir()
 
 
+def test_write_job_config_does_not_copy_global_active_provider(
+    adapter: OCRAdapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A profile's endpoint/model must win over the user's global OCR choice."""
+
+    global_home = tmp_path / "global-home"
+    global_config = global_home / ".opencodereview" / "config.json"
+    global_config.parent.mkdir(parents=True)
+    global_config.write_text(
+        json.dumps(
+            {
+                "provider": "GX10",
+                "custom_providers": {"GX10": {"api_key": "global-secret"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("USERPROFILE", str(global_home))
+
+    config_path = adapter.write_job_config(
+        tmp_path / "job-home",
+        ProviderResolution(
+            base_url="http://kevin-cluster/v1",
+            model="DeepSeek-V4-Flash-0731-TP4",
+            protocol="openai",
+        ),
+    )
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert data["llm"]["url"] == "http://kevin-cluster/v1"
+    assert data["llm"]["model"] == "DeepSeek-V4-Flash-0731-TP4"
+    assert "provider" not in data
+    assert "GX10" in data["custom_providers"]
+
+
 # --- result parsing --------------------------------------------------------------
 
 SAMPLE_RESULT = {

@@ -664,7 +664,11 @@ class OCRAdapter:
                     )
                     # Merge: keep our non-secret settings, but pull in the
                     # provider credentials (custom_providers, providers, etc.)
-                    for key in ("providers", "custom_providers", "provider"):
+                    # Provider definitions can supply credentials, but the
+                    # global active-provider selector must never leak into a
+                    # managed job. The selected review profile's llm block is
+                    # authoritative for this invocation.
+                    for key in ("providers", "custom_providers"):
                         if key in global_data:
                             config[key] = global_data[key]
                     # If the global config has an llm block with credentials,
@@ -686,7 +690,10 @@ class OCRAdapter:
                     global_data = json.loads(
                         global_config.read_text(encoding="utf-8")
                     )
-                    for key in ("providers", "custom_providers", "provider"):
+                    # Do not copy the global active-provider selector: it can
+                    # override the profile's model and endpoint at OCR config
+                    # resolution time.
+                    for key in ("providers", "custom_providers"):
                         if key in global_data:
                             config[key] = global_data[key]
                 except (OSError, json.JSONDecodeError):
