@@ -507,6 +507,8 @@ class JobRunner:
             "path": None,
             "seen_files": set(),
             "phase": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
             "stop": asyncio.Event(),
         }
         tail_task = asyncio.create_task(self._tail_session(job_id, job_home, tail_state))
@@ -650,6 +652,19 @@ class JobRunner:
         )
         state["offset"] = new_offset
         for event in events:
+            if event.prompt_tokens is not None or event.completion_tokens is not None:
+                state["input_tokens"] += event.prompt_tokens or 0
+                state["output_tokens"] += event.completion_tokens or 0
+                await self._emit(
+                    job_id,
+                    "job.usage",
+                    {
+                        "input_tokens": state["input_tokens"],
+                        "output_tokens": state["output_tokens"],
+                        "seq": event.seq,
+                    },
+                )
+
             phase = self._session_phase(event)
             if phase is not None and phase != state.get("phase"):
                 state["phase"] = phase

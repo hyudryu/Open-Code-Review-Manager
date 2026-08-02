@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ocr-control-center"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first web control plane for Alibaba OpenCodeReview (ocr)"
 readme = "README.md"
 requires-python = ">=3.12"

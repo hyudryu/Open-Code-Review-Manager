@@ -14,7 +14,7 @@ import {
   Skeleton,
   StatusDot,
 } from "../components/ui";
-import { relativeTime } from "../lib/format";
+import { formatTokens, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
 import { TERMINAL_STATUSES } from "../types";
 import layout from "../layouts/layout.module.css";
@@ -159,6 +159,10 @@ export function JobLivePage() {
                   : "0%",
               }}
             />
+          </div>
+          <div className={styles.liveTokenUsage} aria-label="Live token consumption">
+            <span><strong>{formatTokens(live.inputTokens)}</strong> input tokens</span>
+            <span><strong>{formatTokens(live.outputTokens)}</strong> output tokens</span>
           </div>
           {files.length > 0 ? (
             <ul style={{ maxHeight: 220, overflowY: "auto", marginTop: 12 }}>

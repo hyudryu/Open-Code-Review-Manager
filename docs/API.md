@@ -171,7 +171,8 @@ events with id > `Last-Event-ID` (header or `?lastEventId=`), then streams
 live events with 15 s keepalives. The stream closes after a terminal event
 (`job.status` with `to` ∈ terminal states). Event types: `job.queued`,
 `job.status`, `job.phase`, `job.file_started`, `job.file_completed`,
-`job.warning`, `job.summary`, `job.log`.
+`job.warning`, `job.usage`, `job.summary`, `job.log`. `job.usage` contains
+cumulative `input_tokens` and `output_tokens` for the active review.
 
 **Reasoning (opt-in)** — `thinking` is `null` everywhere unless
 `include_reasoning=true` is passed on the findings endpoints or the export

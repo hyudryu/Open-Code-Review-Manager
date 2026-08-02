@@ -1086,6 +1086,7 @@ job.file_started
 job.file_completed
 job.warning
 job.finding
+job.usage
 job.summary
 job.completed
 job.failed

@@ -621,37 +621,37 @@ async def _completed_job(client, repo) -> str:
 async def test_session_inspector_server_side_filters(client, repo) -> None:
     job_id = await _completed_job(client, repo)
 
-    # Unfiltered baseline: fake OCR emits 3 session records.
+    # Unfiltered baseline: fake OCR emits 4 session records.
     response = await client.get(f"/api/v1/jobs/{job_id}/session")
     assert response.status_code == 200
-    assert response.json()["total"] == 3
+    assert response.json()["total"] == 4
 
     # Full-text search narrows to the records mentioning the file.
     response = await client.get(f"/api/v1/jobs/{job_id}/session?q=hello")
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
+    assert body["total"] == 3
     assert all("hello" in json.dumps(r) for r in body["records"])
 
     # File filter (substring, case-insensitive).
     response = await client.get(f"/api/v1/jobs/{job_id}/session?file=HELLO.py")
-    assert response.json()["total"] == 2
+    assert response.json()["total"] == 3
     response = await client.get(f"/api/v1/jobs/{job_id}/session?file=missing.py")
     assert response.json()["total"] == 0
     assert response.json()["records"] == []
 
-    # Task-type filter: fake session records carry no task_type.
+    # Task-type filter selects the token-bearing model response.
     response = await client.get(
-        f"/api/v1/jobs/{job_id}/session?task_type=plan_task"
+        f"/api/v1/jobs/{job_id}/session?task_type=main_task"
     )
-    assert response.json()["total"] == 0
+    assert response.json()["total"] == 1
 
     # Filters compose; pagination applies after filtering.
     response = await client.get(
         f"/api/v1/jobs/{job_id}/session?q=hello&limit=1&offset=1"
     )
     body = response.json()
-    assert body["total"] == 2
+    assert body["total"] == 3
     assert len(body["records"]) == 1
 
 
