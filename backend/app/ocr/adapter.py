@@ -329,7 +329,7 @@ class OCRAdapter:
     def build_review_command(
         self, ctx: ReviewJobContext, caps: OCRCapabilities | None = None
     ) -> list[str]:
-        """Build the ``ocr review`` argv array for any of the 4 modes.
+        """Build the OCR argv array for any supported review mode.
 
         ``--format json --audience human`` are always forced. JSON keeps the
         terminal result machine-readable, while the human audience preserves
@@ -346,7 +346,18 @@ class OCRAdapter:
             )
         binary = self.find_binary() or "ocr"
 
-        argv: list[str] = [binary, "review", "--repo", ctx.repo_path]
+        is_scan = ctx.mode == "scan"
+        if is_scan:
+            self._require(
+                caps, caps.scan, "scan",
+                "installed OCR does not support full-file scans",
+            )
+        argv: list[str] = [
+            binary,
+            "scan" if is_scan else "review",
+            "--repo",
+            ctx.repo_path,
+        ]
 
         if ctx.mode in ("range", "pr"):
             # PR jobs review PR-head vs PR-base: identical argv to a range
@@ -361,12 +372,16 @@ class OCRAdapter:
             if not commit:
                 raise ValueError("commit mode requires a commit ref/SHA")
             argv += ["--commit", commit]
-        elif ctx.mode == "workspace":
-            pass  # no mode flags = workspace review (grounded in flags.go)
+        elif ctx.mode in ("workspace", "scan"):
+            pass  # Both commands need no ref-selection flags.
         else:  # pragma: no cover - pydantic constrains this
             raise ValueError(f"unknown mode: {ctx.mode}")
 
         if ctx.resume_session_id:
+            if is_scan:
+                raise UnsupportedFeatureError(
+                    "resume", "OCR scan jobs do not support session continuation"
+                )
             self._require(
                 caps,
                 caps.resume,
@@ -395,6 +410,10 @@ class OCRAdapter:
         if ctx.background:
             argv += ["--background", ctx.background]
         if ctx.background_file:
+            if is_scan:
+                raise UnsupportedFeatureError(
+                    "background_file", "OCR scan does not support --background-file"
+                )
             self._require(
                 caps, caps.background_file, "background_file",
                 "installed OCR does not support --background-file",
@@ -410,25 +429,39 @@ class OCRAdapter:
 
         # Planning-control patch set (Stage 4). Only emitted when the binary
         # reports support; otherwise the job context must stay at defaults.
-        if ctx.plan_mode != "auto":
+        if is_scan and ctx.plan_mode == "never":
+            argv += ["--no-plan"]
+        elif not is_scan and ctx.plan_mode != "auto":
             self._require(
                 caps, caps.plan_mode, "plan_mode",
                 "installed OCR does not support --plan-mode (planning patch not applied)",
             )
             argv += ["--plan-mode", ctx.plan_mode]
         if ctx.plan_threshold_lines is not None:
+            if is_scan:
+                raise UnsupportedFeatureError(
+                    "plan_threshold",
+                    "OCR scan plans whole files and does not support --plan-threshold",
+                )
             self._require(
                 caps, caps.plan_threshold, "plan_threshold",
                 "installed OCR does not support --plan-threshold",
             )
             argv += ["--plan-threshold", str(ctx.plan_threshold_lines)]
         if ctx.max_tokens is not None:
-            self._require(
-                caps, caps.max_tokens, "max_tokens",
-                "installed OCR does not support --max-tokens",
-            )
-            argv += ["--max-tokens", str(ctx.max_tokens)]
+            if is_scan:
+                argv += ["--max-tokens-budget", str(ctx.max_tokens)]
+            else:
+                self._require(
+                    caps, caps.max_tokens, "max_tokens",
+                    "installed OCR does not support --max-tokens",
+                )
+                argv += ["--max-tokens", str(ctx.max_tokens)]
         if ctx.template_path:
+            if is_scan:
+                raise UnsupportedFeatureError(
+                    "template_override", "OCR scan does not support --template"
+                )
             self._require(
                 caps, caps.template_override, "template_override",
                 "installed OCR does not support --template",

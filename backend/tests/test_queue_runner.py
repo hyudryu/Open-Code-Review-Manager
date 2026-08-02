@@ -150,6 +150,28 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
     assert job.worktree_path is None
 
 
+async def test_scan_job_uses_immutable_worktree(project, fake_ocr, make_worker) -> None:
+    project_id, _ = project
+    job_id = await _create_job(project_id, mode="scan")
+
+    queued = await _get_job(job_id)
+    assert queued.configuration_snapshot_json["target_sha"]
+    assert queued.generated_command_json["argv"][1] == "scan"
+
+    worker = make_worker()
+    await worker.drain()
+
+    completed = await _get_job(job_id)
+    assert completed.status == "completed"
+    assert completed.workspace_path is None
+
+    from app.services.errors import ConflictError
+
+    async with session_scope() as session:
+        with pytest.raises(ConflictError, match="do not support session resume"):
+            await JobService(session).resume(job_id)
+
+
 async def test_warnings_yield_completed_with_warnings(
     project, fake_ocr, make_worker, monkeypatch
 ) -> None:

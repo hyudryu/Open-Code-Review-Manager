@@ -45,7 +45,7 @@ PROVIDER_PROTOCOLS = ("openai", "openai-responses", "anthropic")
 MODEL_DISCOVERY_MODES = ("auto", "manual", "adapter")
 PLAN_MODES = ("auto", "always", "never")
 JOB_SOURCES = ("web", "mcp", "api", "retry")
-JOB_MODES = ("range", "commit", "workspace", "pr")
+JOB_MODES = ("range", "commit", "workspace", "pr", "scan")
 JOB_STATUSES = (
     "queued",
     "preparing",

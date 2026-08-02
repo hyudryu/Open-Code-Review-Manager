@@ -149,7 +149,7 @@ GET    /jobs/{id}/export                 ?format=md|json|csv|jsonl|txt|agent-pro
 // POST /jobs
 {
   "project_id": "…",
-  "mode": "range",                       // range | commit | workspace | pr
+  "mode": "range",                       // range | commit | workspace | pr | scan
   "base_ref": "main", "target_ref": "feature/x",   // range
   "commit_ref": "HEAD",                                 // commit
   "pr_number": 7,                                       // pr (base_ref optional —

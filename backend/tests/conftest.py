@@ -72,7 +72,7 @@ def main(argv):
             return 1
         print("llm ok: " + os.environ.get("OCR_LLM_MODEL", "none"))
         return 0
-    if argv[0] == "review" and "--preview" in argv:
+    if argv[0] in {"review", "scan"} and "--preview" in argv:
         print(json.dumps({
             "files": [
                 {"path": "hello.py", "status": "modified", "insertions": 3,
@@ -84,7 +84,7 @@ def main(argv):
             "total_insertions": 3, "total_deletions": 1,
         }))
         return 0
-    if argv[0] == "review":
+    if argv[0] in {"review", "scan"}:
         return run_review(argv)
     print("unknown command", file=sys.stderr)
     return 2

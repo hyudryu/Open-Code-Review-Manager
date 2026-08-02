@@ -149,6 +149,33 @@ def test_build_workspace_command(adapter: OCRAdapter) -> None:
     assert argv[-4:] == ["--format", "json", "--audience", "human"]
 
 
+def test_build_scan_command(adapter: OCRAdapter) -> None:
+    argv = adapter.build_review_command(
+        _ctx(
+            mode="scan",
+            plan_mode="never",
+            max_tokens=50_000,
+            exclude_patterns=["vendor/**"],
+        ),
+        STOCK,
+    )
+    assert argv[1:4] == ["scan", "--repo", "C:/worktrees/p1/j1"]
+    assert "--no-plan" in argv
+    assert argv[argv.index("--max-tokens-budget") + 1] == "50000"
+    assert "--from" not in argv and "--to" not in argv and "--commit" not in argv
+
+
+def test_scan_requires_supported_profile_options(adapter: OCRAdapter) -> None:
+    with pytest.raises(UnsupportedFeatureError, match="background-file"):
+        adapter.build_review_command(
+            _ctx(mode="scan", background_file="docs/context.md"), STOCK
+        )
+    with pytest.raises(UnsupportedFeatureError, match="plan-threshold"):
+        adapter.build_review_command(
+            _ctx(mode="scan", plan_threshold_lines=100), STOCK
+        )
+
+
 def test_command_requires_mode_inputs(adapter: OCRAdapter) -> None:
     with pytest.raises(ValueError):
         adapter.build_review_command(_ctx(mode="range", base_ref="main"), STOCK)

@@ -262,7 +262,7 @@ export function QueuePage() {
             // (--resume <session_id>); only offered when a session exists,
             // i.e. the job actually started. Jobs cancelled while queued have
             // no session and only get Retry.
-            ...(job.ocr_session_id
+            ...(job.ocr_session_id && job.mode !== "scan"
               ? [
                   {
                     key: "resume",

@@ -18,6 +18,7 @@ import type {
   JobCreateInput,
   JobEventRecord,
   JobLog,
+  JobMode,
   JobPreview,
   McpStatus,
   OCRStatus,
@@ -614,7 +615,7 @@ export function usePreviewJob() {
   return useMutation({
     mutationFn: (input: {
       project_id: string;
-      mode: string;
+      mode: JobMode;
       base_ref?: string | null;
       target_ref?: string | null;
       commit_ref?: string | null;

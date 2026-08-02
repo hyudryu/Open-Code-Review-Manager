@@ -18,7 +18,7 @@ import {
   Tr,
 } from "../components/ui";
 import { IconChevronLeft, IconFile } from "../components/ui/icons";
-import type { JobPreview } from "../types";
+import type { JobMode, JobPreview } from "../types";
 import layout from "../layouts/layout.module.css";
 
 const STATE_BADGE: Record<string, { label: string; tone: "success" | "warning" | "danger" | "neutral" | "accent" }> = {
@@ -32,7 +32,10 @@ export function PreviewPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const projectId = params.get("project") ?? "";
-  const mode = params.get("mode") ?? "range";
+  const requestedMode = params.get("mode") ?? "range";
+  const mode: JobMode = ["range", "commit", "workspace", "pr", "scan"].includes(requestedMode)
+    ? requestedMode as JobMode
+    : "range";
   const baseRef = params.get("base") || null;
   const targetRef = params.get("target") || null;
   const commitRef = params.get("commit") || null;
@@ -80,7 +83,7 @@ export function PreviewPage() {
         title="File preview"
         subtitle={
           project.data
-            ? `${project.data.display_name} · ${mode === "range" ? `${baseRef ?? "?"} → ${targetRef ?? "?"}` : mode === "commit" ? commitRef : mode === "pr" ? `PR #${prNumber ?? "?"}` : "working tree"}`
+            ? `${project.data.display_name} · ${mode === "range" ? `${baseRef ?? "?"} → ${targetRef ?? "?"}` : mode === "commit" ? commitRef : mode === "pr" ? `PR #${prNumber ?? "?"}` : mode === "scan" ? "full repository" : "working tree"}`
             : "Files OCR will review — no LLM calls are made for a preview."
         }
         actions={

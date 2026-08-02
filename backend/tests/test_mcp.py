@@ -69,6 +69,20 @@ async def test_submit_get_findings_flow(project, fake_ocr, make_worker) -> None:
     job = await mcp_server.ocr_get_job(job_id)
     assert job["status"] == "completed"
     assert job["summary"]["files_reviewed"] == 1
+    assert job["comments_count"] == 1
+    assert job["comments"][0]["path"] == "hello.py"
+
+    # The displayed OCR session id is accepted anywhere status/results are
+    # requested, so callers do not need to retain the manager job id.
+    by_session = await mcp_server.ocr_get_job(job["ocr_session_id"])
+    assert by_session["id"] == job_id
+    assert by_session["comments"][0]["content"] == "Consider adding a docstring."
+    results_by_session = await mcp_server.ocr_get_job_results(
+        job["ocr_session_id"], timeout_seconds=1
+    )
+    assert results_by_session["terminal"] is True
+    assert results_by_session["comments_count"] == 1
+    assert results_by_session["result"]["findings"][0]["path"] == "hello.py"
 
     findings = await mcp_server.ocr_get_findings(job_id)
     assert findings["total"] == 1
@@ -145,6 +159,29 @@ async def test_profiles_and_preview_tools(project, fake_ocr) -> None:
     assert preview["ok"] is True
     assert preview["reviewable_count"] == 1
     assert preview["files"][1]["exclude_reason"] == "binary"
+
+
+async def test_scan_preview_and_submission_via_mcp(
+    project, fake_ocr, make_worker
+) -> None:
+    project_id, _ = project
+
+    preview = await mcp_server.ocr_preview_review(
+        project_id=project_id, mode="scan"
+    )
+    assert preview["ok"] is True
+    assert preview["reviewable_count"] == 1
+
+    submitted = await mcp_server.ocr_submit_review(
+        project_id=project_id, mode="scan"
+    )
+    assert submitted["status"] == "queued"
+
+    worker = make_worker()
+    await worker.drain()
+    job = await mcp_server.ocr_get_job(submitted["job_id"])
+    assert job["status"] == "completed"
+    assert job["mode"] == "scan"
 
 
 async def test_add_project_registers_and_recovers_not_found(
@@ -331,6 +368,7 @@ async def test_submit_default_mode_defaults_to_range(db, runtime, make_repo, fak
     assert "commit" in err["detail"]
     assert "workspace" in err["detail"]
     assert "pr" in err["detail"]
+    assert "scan" in err["detail"]
 
 
 async def test_submit_range_auto_defaults_base_ref(db, runtime, make_repo, make_worker, fake_ocr) -> None:

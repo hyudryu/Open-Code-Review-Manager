@@ -9,6 +9,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  CopyButton,
   ErrorState,
   Skeleton,
   StatusDot,
@@ -231,11 +232,22 @@ export function JobLivePage() {
           </div>
         </section>
 
-        <div className={layout.row}>
+        <div className={layout.stack} style={{ gap: 6 }}>
           <span className={layout.small}>
             Queued {relativeTime(j.queued_at)} · priority {j.priority} · via {j.source}
-            {j.ocr_session_id ? ` · session ${j.ocr_session_id.slice(0, 8)}` : ""}
           </span>
+          <div className={layout.row}>
+            <span className={layout.small}>Job ID</span>
+            <code className={layout.monoPath}>{j.id}</code>
+            <CopyButton text={j.id} aria-label="Copy job id" />
+          </div>
+          {j.ocr_session_id ? (
+            <div className={layout.row}>
+              <span className={layout.small}>Session ID</span>
+              <code className={layout.monoPath}>{j.ocr_session_id}</code>
+              <CopyButton text={j.ocr_session_id} aria-label="Copy session id" />
+            </div>
+          ) : null}
         </div>
       </div>
 

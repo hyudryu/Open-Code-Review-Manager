@@ -266,7 +266,7 @@ class JobRunner:
         worktree_created: Path | None = None
         workspace_lock: asyncio.Lock | None = None
 
-        if job.mode in {"range", "commit", "pr"}:
+        if job.mode in {"range", "commit", "pr", "scan"}:
             target_sha = snapshot.get("target_sha") or snapshot.get("commit_sha")
             if not target_sha:
                 raise RuntimeError("job snapshot is missing the resolved target SHA")
