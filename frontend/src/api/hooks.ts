@@ -11,6 +11,7 @@ import type {
   Branch,
   DirBrowse,
   Finding,
+  GitHubAuthStatus,
   Folder,
   FolderScan,
   Health,
@@ -317,6 +318,28 @@ export function usePullRequests(projectId: string, enabled = true) {
       api.get<PullRequestList>(`/api/v1/projects/${projectId}/pull-requests`),
     enabled: Boolean(projectId) && enabled,
     staleTime: 30_000,
+  });
+}
+
+export function useGitHubAuth(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["projects", projectId, "github-auth"] as const,
+    queryFn: () => api.get<GitHubAuthStatus>(`/api/v1/projects/${projectId}/github-auth`),
+    enabled: Boolean(projectId) && enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useSwitchGitHubAuth() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, login }: { projectId: string; login: string }) =>
+      api.post<GitHubAuthStatus>(`/api/v1/projects/${projectId}/github-auth/switch`, { login }),
+    onSuccess: (data, { projectId }) => {
+      qc.setQueryData(["projects", projectId, "github-auth"], data);
+      void qc.invalidateQueries({ queryKey: ["projects", projectId, "pull-requests"] });
+      void qc.invalidateQueries({ queryKey: qk.branches(projectId) });
+    },
   });
 }
 

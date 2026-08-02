@@ -114,3 +114,18 @@ class PullRequestListOut(BaseModel):
     prs: list[PullRequestOut]
     source: str  # api | git | none
     warning: str | None = None
+
+
+class GitHubAccountOut(BaseModel):
+    login: str
+    active: bool
+    state: str
+
+
+class GitHubAuthStatusOut(BaseModel):
+    accounts: list[GitHubAccountOut]
+    error: str | None = None
+
+
+class GitHubAuthSwitchIn(BaseModel):
+    login: str

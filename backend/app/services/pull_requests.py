@@ -19,6 +19,7 @@ from app.db import models
 from app.git.service import GitError
 from app.services.deps import ServiceBase
 from app.services.errors import NotFoundError, ValidationFailedError
+from app.services.github_auth import GitHubAuthService
 
 GITHUB_API = "https://api.github.com"
 USER_AGENT = "ocr-control-center"
@@ -71,9 +72,17 @@ class PullRequestList:
 
 
 class PrService(ServiceBase):
-    def __init__(self, session, *, http_transport: httpx.AsyncBaseTransport | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        session,
+        *,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+        github_auth: GitHubAuthService | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(session, **kwargs)
         self._http_transport = http_transport
+        self.github_auth = github_auth or GitHubAuthService()
 
     # ------------------------------------------------------------------
     # listing
@@ -153,6 +162,8 @@ class PrService(ServiceBase):
             "X-GitHub-Api-Version": "2022-11-28",
         }
         token = os.environ.get(TOKEN_ENV_VAR, "").strip()
+        if not token:
+            token = await self.github_auth.active_token()
         if token:  # never logged, never persisted
             headers["Authorization"] = f"Bearer {token}"
         timeout = httpx.Timeout(15.0)
