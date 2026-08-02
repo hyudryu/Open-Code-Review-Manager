@@ -21,7 +21,7 @@ import { useSpeedLearner } from "../hooks/use-speed-learner";
 import { PageHeader } from "../layouts/AppLayout";
 import { Button, EmptyState, Skeleton, StatusDot, toast } from "../components/ui";
 import { IconFolder, IconPlus } from "../components/ui/icons";
-import { formatDateTime, formatDuration, relativeTime } from "../lib/format";
+import { formatDateTime, formatDuration, formatTokens, relativeTime } from "../lib/format";
 import { jobTargetLabel, STATUS_LABEL, STATUS_TONE } from "../lib/status";
 import { TERMINAL_STATUSES, type Job, type Provider } from "../types";
 import layout from "../layouts/layout.module.css";
@@ -210,6 +210,10 @@ function ActiveReviewActivity({
       >
         {estimatedRemaining ? `Estimated time remaining: ~${estimatedRemaining}` : "Estimating time remaining…"}
       </p>
+      <div className={styles.liveTokenUsage} aria-label="Live token consumption">
+        <span><strong>{formatTokens(live.inputTokens)}</strong> input tokens</span>
+        <span><strong>{formatTokens(live.outputTokens)}</strong> output tokens</span>
+      </div>
       {isExpanded ? (
         <LiveLogPane live={live} />
       ) : (

@@ -59,4 +59,22 @@ describe("live job event state", () => {
 
     expect(unseenJobEvents(events, new Set([11])).map((event) => event.id)).toEqual([10, 12]);
   });
+
+  it("refreshes live input and output token totals from cumulative usage events", () => {
+    const first = liveJobReducer(initialLiveJobState, {
+      type: "event",
+      eventType: "job.usage",
+      payload: { input_tokens: 1200, output_tokens: 300 },
+      id: 20,
+    });
+    const refreshed = liveJobReducer(first, {
+      type: "event",
+      eventType: "job.usage",
+      payload: { input_tokens: 2000, output_tokens: 425 },
+      id: 21,
+    });
+
+    expect(refreshed.inputTokens).toBe(2000);
+    expect(refreshed.outputTokens).toBe(425);
+  });
 });

@@ -55,6 +55,19 @@
   transition: width 300ms var(--ease);
 }
 
+.liveTokenUsage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  color: var(--text-tertiary);
+  font: var(--text-small);
+}
+
+.liveTokenUsage strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .statRow {
   display: flex;
   gap: var(--space-6);

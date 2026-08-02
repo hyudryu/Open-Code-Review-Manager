@@ -105,6 +105,12 @@ def run_review(argv):
     if os.environ.get("FAKE_OCR_NO_SESSION") != "1":
         emit({"type": "session_start"})
         emit({"type": "file_started", "filePath": "hello.py"})
+        emit({
+            "type": "llm_response",
+            "filePath": "hello.py",
+            "taskType": "main_task",
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+        })
         emit({"type": "file_completed", "filePath": "hello.py", "comments": 1})
 
     if os.environ.get("FAKE_OCR_EARLY_LOG"):

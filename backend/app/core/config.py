@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "ocr-control-center"
-    app_version: str = "0.1.0"
+    app_version: str = "0.1.1"
 
     # --- paths -------------------------------------------------------------
     data_dir: Path = Field(default_factory=_default_data_dir)

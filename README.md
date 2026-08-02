@@ -14,7 +14,7 @@ anywhere except the LLM endpoint you configure.
 
 - **Project management** — register git repos, browse branches, start reviews
 - **Review queue** — durable, priority-ordered, concurrency-limited, with drag-and-drop reordering
-- **Live progress** — SSE-streamed logs and file-by-file progress for running reviews
+- **Live progress** — SSE-streamed logs, file-by-file progress, and input/output token consumption for running reviews
 - **Structured findings** — color-coded by severity (HIGH/MEDIUM/LOW), with code snippets, reasoning, and triage states
 - **Usage analytics** — token consumption histograms, pie chart breakdowns (input/output/cache), per-model usage bars, with time range filters
 - **Provider management** — configure LLM endpoints, discover models, test connections

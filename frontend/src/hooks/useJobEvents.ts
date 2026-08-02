@@ -32,6 +32,8 @@ export interface LiveJobState {
   log: LiveLogLine[];
   warnings: string[];
   summary: Record<string, unknown> | null;
+  inputTokens: number;
+  outputTokens: number;
   terminal: boolean;
   lastEventId: number;
 }
@@ -63,6 +65,8 @@ export const initialLiveJobState: LiveJobState = {
   log: [],
   warnings: [],
   summary: null,
+  inputTokens: 0,
+  outputTokens: 0,
   terminal: false,
   lastEventId: 0,
 };
@@ -178,6 +182,17 @@ export function liveJobReducer(
           next.warnings = [...state.warnings.slice(-(MAX_WARNINGS - 1)), message];
           break;
         }
+        case "job.usage": {
+          next.inputTokens =
+            typeof payload.input_tokens === "number" && payload.input_tokens >= 0
+              ? payload.input_tokens
+              : state.inputTokens;
+          next.outputTokens =
+            typeof payload.output_tokens === "number" && payload.output_tokens >= 0
+              ? payload.output_tokens
+              : state.outputTokens;
+          break;
+        }
         case "job.summary": {
           next.summary =
             (payload.summary as Record<string, unknown> | undefined) ?? payload;
@@ -261,6 +276,7 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       "job.file_started",
       "job.file_completed",
       "job.warning",
+      "job.usage",
       "job.finding",
       "job.summary",
       "job.completed",

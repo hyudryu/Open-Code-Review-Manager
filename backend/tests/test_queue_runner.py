@@ -132,11 +132,18 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
         assert "job.file_started" in types
         assert "job.file_completed" in types
         assert "job.log" in types
+        assert "job.usage" in types
         assert "job.summary" in types
         inventory = next(e for e in events if e.event_type == "job.inventory")
         assert inventory.payload_json == {
             "files": ["hello.py"],
             "total_files": 1,
+        }
+        usage = next(e for e in events if e.event_type == "job.usage")
+        assert usage.payload_json == {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "seq": 2,
         }
 
     # Artifacts on disk.
