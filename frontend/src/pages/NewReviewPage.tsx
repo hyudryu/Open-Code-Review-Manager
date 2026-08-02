@@ -12,11 +12,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useBranches,
   useCreateJob,
+  useGitHubAuth,
   useProfiles,
   useProject,
   useProjects,
   usePullRequests,
+  useRefreshBranches,
   useSystemOcr,
+  useSwitchGitHubAuth,
   useWebhooks,
 } from "../api/hooks";
 import { PageHeader } from "../layouts/AppLayout";
@@ -117,6 +120,22 @@ export function NewReviewPage() {
   const [expertOpen, setExpertOpen] = useState(false);
 
   const pullRequests = usePullRequests(projectId, mode === "pr");
+  const githubAuth = useGitHubAuth(projectId, mode === "pr");
+  const switchGitHubAuth = useSwitchGitHubAuth();
+  const refreshBranches = useRefreshBranches();
+
+  async function switchGitHubAccount(login: string) {
+    try {
+      const status = await switchGitHubAuth.mutateAsync({ projectId, login });
+      if (status.error) throw new Error(status.error);
+      setSelectedPr(null);
+      await refreshBranches.mutateAsync({ projectId, fetch: true });
+      await pullRequests.refetch();
+      toast.success(`Switched GitHub account to ${login} and refreshed GitHub data`);
+    } catch (error) {
+      toast.error("Could not switch GitHub account", error instanceof Error ? error.message : undefined);
+    }
+  }
   const prList = useMemo(
     () => [...(pullRequests.data?.prs ?? [])].sort((a, b) => b.number - a.number),
     [pullRequests.data],
@@ -440,6 +459,32 @@ export function NewReviewPage() {
                   {pullRequests.isFetching ? "Refreshing…" : "Refresh"}
                 </Button>
               </div>
+
+              {projectId && (githubAuth.data || githubAuth.error) ? (
+                <div className={styles.warningBox} role="status">
+                  {githubAuth.error ? (
+                    <span>Could not load GitHub accounts. Refresh and try again.</span>
+                  ) : githubAuth.data?.error ? (
+                    <span>{githubAuth.data.error}</span>
+                  ) : (
+                    <span>
+                      GitHub account: {githubAuth.data?.accounts.find((account) => account.active)?.login ?? "none"}
+                      {githubAuth.data?.accounts.filter((account) => !account.active && account.state === "success").map((account) => (
+                        <Button
+                          key={account.login}
+                          variant="secondary"
+                          size="small"
+                          disabled={switchGitHubAuth.isPending}
+                          onClick={() => void switchGitHubAccount(account.login)}
+                          style={{ marginLeft: 8 }}
+                        >
+                          Switch to {account.login}
+                        </Button>
+                      ))}
+                    </span>
+                  )}
+                </div>
+              ) : null}
 
               {!projectId ? (
                 <p className={layout.small}>Choose a project first.</p>

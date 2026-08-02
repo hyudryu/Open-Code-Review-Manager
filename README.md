@@ -1,27 +1,27 @@
 # OpenCodeReview Manager
 
-A local-first web control plane for [Alibaba OpenCodeReview](https://github.com/alibaba/open-code-review) (`ocr`).
-It manages projects, review profiles, a durable review queue, live job progress,
-structured findings, usage analytics, and integrations (MCP server, signed
-webhooks) — all from one local app that never sends your code or credentials
-anywhere except the LLM endpoint you configure.
+A local-first web control plane for [Alibaba OpenCodeReview](https://github.com/alibaba/open-code-review) (`ocr`). It manages projects, review profiles, a durable review queue, live job progress, structured findings, usage analytics, and integrations (MCP server and signed webhooks) from one local app. Your code and credentials stay local except for requests to the LLM endpoint you configure.
 
-- **Backend** — Python 3.12, FastAPI, SQLAlchemy 2 (async, SQLite WAL), Alembic
-- **Frontend** — React 18, TypeScript strict, Vite, custom design system
-- **Engine** — the `ocr` CLI runs your reviews in isolated worktrees
+- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2 (async, SQLite WAL), Alembic
+- **Frontend**: React 18, TypeScript strict, Vite, custom design system
+- **Engine**: the `ocr` CLI runs reviews in isolated worktrees
 
 ## Features
 
-- **Project management** — register git repos, browse branches, start reviews
-- **Review queue** — durable, priority-ordered, concurrency-limited, with drag-and-drop reordering
-- **Live progress** — SSE-streamed logs, file-by-file progress, and input/output token consumption for running reviews
-- **Structured findings** — color-coded by severity (HIGH/MEDIUM/LOW), with code snippets, reasoning, and triage states
-- **Usage analytics** — token consumption histograms, pie chart breakdowns (input/output/cache), per-model usage bars, with time range filters
-- **Provider management** — configure LLM endpoints, discover models, test connections
-- **Review profiles** — reusable presets for provider, model, concurrency, and OCR settings
-- **MCP server** — lets AI agents submit and monitor code reviews programmatically
-- **Webhooks** — signed event delivery for CI/CD integration
-- **Stale job recovery** — runtime watchdog reaper detects and cleans up stuck jobs
+- **Project management**: register git repositories, browse branches, and discover repositories by scanning folders
+- **Review queue**: durable, priority-ordered, concurrency-limited jobs with drag-and-drop reordering
+- **Live progress**: SSE-streamed logs, file progress, elapsed time, adaptive ETA, and input/output token consumption
+- **Structured findings**: color-coded HIGH/MEDIUM/LOW findings with code snippets, reasoning, and triage states
+- **Usage analytics**: token histograms, input/output/cache breakdowns, per-model usage bars, and time range filters
+- **Provider management**: configure LLM endpoints, discover models, and test connections
+- **Review profiles**: reusable provider, model, concurrency, and OCR presets
+- **Repository scans**: review supported files at the current commit without choosing a range or pull request
+- **Review recovery**: retry a review from scratch or resume an eligible OCR session
+- **GitHub review requests**: switch between GitHub CLI keychain accounts and immediately refresh GitHub data
+- **Field guidance**: Profile and Settings fields have brief explanations available by hover and keyboard focus
+- **MCP server**: lets AI agents submit and monitor code reviews programmatically
+- **Webhooks**: signed event delivery for CI/CD integration
+- **Stale job recovery**: a watchdog reaper detects and cleans up stuck jobs
 
 ## Install
 
@@ -31,10 +31,9 @@ Prerequisites: **Python 3.12+**, **Node.js 20+**, **Git**, and the review engine
 npm i -g @alibaba-group/open-code-review
 ```
 
-The app runs fine without `ocr` installed — OCR-dependent actions show a clear
-"OCR not detected" state with install instructions until it is.
+The app runs without `ocr` installed, but OCR-dependent actions show an "OCR not detected" state with install instructions until it is available.
 
-## Quickstart (production — one command)
+## Quickstart (production - one command)
 
 ```bash
 # Windows (PowerShell)
@@ -44,12 +43,9 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 scripts/start.sh
 ```
 
-The script creates the virtualenv and installs dependencies on first run,
-builds the frontend when needed, then starts the app. Database migrations,
-the queue worker, the webhook worker, and the MCP server all start with it.
+The script creates the virtualenv and installs dependencies on first run, builds the frontend when needed, then starts the app. Database migrations, the queue worker, the webhook worker, and the MCP server all start with it.
 
-Open **http://127.0.0.1:8372** — the same process serves the UI, the REST API
-(`/api/v1`), and the MCP endpoint (`/mcp`).
+Open **http://127.0.0.1:8372**. The same process serves the UI, REST API (`/api/v1`), and MCP endpoint (`/mcp`).
 
 To use another port for a single launch:
 
@@ -58,9 +54,28 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Port 9000
 scripts/start.sh --port 9000
 ```
 
-Configuration is optional; copy [.env.example](.env.example) to `.env` to
-override ports, paths, or executables. Provider credentials are entered in the
-UI and stored in the OS keyring — never in the database, logs, or exports.
+Configuration is optional; copy [.env.example](.env.example) to `.env` to override ports, paths, or executables. Provider credentials are entered in the UI and stored in the OS keyring, never in the database, logs, or exports.
+
+### GitHub pull request access
+
+For private GitHub repositories, install and sign in to the [GitHub CLI](https://cli.github.com/) before selecting a pull-request review:
+
+```bash
+gh auth login
+```
+
+The New Review pull-request picker shows the active `github.com` account and other accounts saved in the GitHub CLI keychain. Select another account to switch immediately; the app fetches branches and reloads open pull requests with that account. An explicitly configured `OCR_CC_GITHUB_TOKEN` takes precedence over the active GitHub CLI account. Tokens are used only in memory for GitHub API requests and are never shown, stored, or logged by the app.
+
+### LAN access (Windows)
+
+To let trusted devices on your local network reach the app, use the network launcher:
+
+```bat
+start-network.bat
+start-network.bat --port 9000 --build
+```
+
+It binds to all interfaces on port `8373` by default and uses the separate `network-data/` directory so it can run beside the local instance. It also permits cross-origin requests; use it only on a trusted network.
 
 ## Development
 
@@ -72,14 +87,13 @@ powershell -ExecutionPolicy Bypass -File scripts/dev.ps1
 scripts/dev.sh
 ```
 
-Starts the backend with `uvicorn --reload` on :8372 and the Vite dev server on
-:5173 (proxying `/api` and `/mcp`). Tests:
+Starts the backend with `uvicorn --reload` on :8372 and the Vite dev server on :5173 (proxying `/api` and `/mcp`). Tests:
 
 ```bash
-# backend (252 tests)
+# backend
 backend/.venv/Scripts/python.exe -m pytest backend/tests -q   # .venv/bin/python on POSIX
 
-# frontend (typecheck + 52 vitest)
+# frontend
 cd frontend && npm run build && npm test
 ```
 
@@ -91,19 +105,19 @@ backend/    FastAPI app: core (config/secrets/security), db (models +
             reaper), services, REST API + SSE, webhooks, MCP server
 frontend/   React SPA: design system, app shell, all screens (Overview,
             Projects, Queue, Reviews, Usage, Providers, Profiles, Settings)
-scripts/    dev.sh/.ps1 (dev servers) · start.sh/.ps1 (one-command production)
+scripts/    dev.sh/.ps1 (dev servers) and start.sh/.ps1 (one-command production)
 docs/       SPEC.md (authoritative spec), ARCHITECTURE.md, API.md, MCP.md,
             WEBHOOKS.md, VERIFICATION.md
 ```
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map, data flow, isolation & security model
-- [docs/API.md](docs/API.md) — every REST route with request/response sketches
-- [docs/MCP.md](docs/MCP.md) — MCP tools/resources/prompts + client configs
-- [docs/WEBHOOKS.md](docs/WEBHOOKS.md) — payload reference, signing, verification examples
-- [docs/VERIFICATION.md](docs/VERIFICATION.md) — acceptance criteria → tests mapping
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): module map, data flow, isolation, and security model
+- [docs/API.md](docs/API.md): REST routes with request/response sketches
+- [docs/MCP.md](docs/MCP.md): MCP tools, resources, prompts, and client configs
+- [docs/WEBHOOKS.md](docs/WEBHOOKS.md): payload reference, signing, and verification examples
+- [docs/VERIFICATION.md](docs/VERIFICATION.md): acceptance criteria to test mapping
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

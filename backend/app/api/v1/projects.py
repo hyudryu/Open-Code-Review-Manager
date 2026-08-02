@@ -10,6 +10,8 @@ from app.api.deps import project_service
 from app.schemas.jobs import JobOut
 from app.schemas.projects import (
     BranchOut,
+    GitHubAuthStatusOut,
+    GitHubAuthSwitchIn,
     ProjectCreate,
     ProjectOut,
     ProjectUpdate,
@@ -19,6 +21,7 @@ from app.schemas.projects import (
 )
 from app.services.projects import ProjectService
 from app.services.pull_requests import PrService
+from app.services.github_auth import GitHubAuthError, GitHubAuthService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -103,6 +106,27 @@ async def list_pull_requests(
         source=listing.source,
         warning=listing.warning,
     )
+
+
+@router.get("/{project_id}/github-auth", response_model=GitHubAuthStatusOut)
+async def github_auth_status(project_id: str, service: ProjectService = Depends(project_service)):
+    await service.get(project_id)
+    status = await GitHubAuthService().status()
+    return GitHubAuthStatusOut(accounts=status.accounts, error=status.error)
+
+
+@router.post("/{project_id}/github-auth/switch", response_model=GitHubAuthStatusOut)
+async def switch_github_auth(
+    project_id: str,
+    payload: GitHubAuthSwitchIn,
+    service: ProjectService = Depends(project_service),
+):
+    await service.get(project_id)
+    try:
+        status = await GitHubAuthService().switch(payload.login)
+    except GitHubAuthError as exc:
+        return GitHubAuthStatusOut(accounts=[], error=str(exc))
+    return GitHubAuthStatusOut(accounts=status.accounts, error=status.error)
 
 
 @router.get("/{project_id}/jobs", response_model=list[JobOut])

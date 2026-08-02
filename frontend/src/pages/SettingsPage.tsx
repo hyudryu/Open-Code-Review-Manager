@@ -22,9 +22,10 @@ import {
   StatusDot,
   Switch,
   Tabs,
+  Tooltip,
   toast,
 } from "../components/ui";
-import { IconExternal } from "../components/ui/icons";
+import { IconExternal, IconInfo } from "../components/ui/icons";
 import layout from "../layouts/layout.module.css";
 
 function SettingRow({
@@ -48,8 +49,15 @@ function SettingRow({
       }}
     >
       <div style={{ minWidth: 0 }}>
-        <div style={{ font: "var(--text-label)", fontSize: 13, color: "var(--text-primary)" }}>
-          {label}
+        <div style={{ font: "var(--text-label)", fontSize: 13, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 4 }}>
+          <span>{label}</span>
+          {help ? (
+            <Tooltip content={help}>
+              <button type="button" aria-label={`About ${label}`} style={{ display: "inline-flex", padding: 0, border: 0, background: "transparent", color: "var(--text-tertiary)", cursor: "help" }}>
+                <IconInfo size={14} />
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
         {help ? <div className={layout.small}>{help}</div> : null}
       </div>
@@ -401,6 +409,7 @@ export function SettingsPage() {
         placeholder="/usr/local/bin/ocr or C:\\tools\\ocr.exe"
         mono
         help="Leave empty to use auto-detection. Applied immediately and re-probed."
+        tooltip="Optional path to a specific OCR executable; blank uses automatic detection."
       />
       <div className={layout.row}>
         <Button
@@ -492,6 +501,8 @@ export function SettingsPage() {
         onChange={(e) => setGitPath(e.target.value)}
         mono
         placeholder="Leave empty for auto-detection"
+        help="Leave empty to use Git from your PATH."
+        tooltip="Optional path to a specific Git executable; blank uses automatic detection."
       />
       <div>
         <Button

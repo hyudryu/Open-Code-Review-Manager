@@ -7,29 +7,41 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import styles from "./ui.module.css";
+import { IconInfo } from "./icons";
+import { Tooltip } from "./Tooltip";
 
 interface FieldShellProps {
   label: string;
   htmlFor: string;
   help?: string;
+  tooltip?: string;
   error?: string | null;
   required?: boolean;
   children: ReactNode;
 }
 
 /** Persistent visible label + optional help + inline validation (SPEC §23). */
-function FieldShell({ label, htmlFor, help, error, required, children }: FieldShellProps) {
+function FieldShell({ label, htmlFor, help, tooltip, error, required, children }: FieldShellProps) {
   const describedBy: string[] = [];
   if (help) describedBy.push(`${htmlFor}-help`);
   if (error) describedBy.push(`${htmlFor}-error`);
   return (
     <div className={styles.field}>
-      <label
-        className={`${styles.label} ${required ? styles.labelRequired : ""}`}
-        htmlFor={htmlFor}
-      >
-        {label}
-      </label>
+      <div className={styles.labelWithTooltip}>
+        <label
+          className={`${styles.label} ${required ? styles.labelRequired : ""}`}
+          htmlFor={htmlFor}
+        >
+          {label}
+        </label>
+        {tooltip ? (
+          <Tooltip content={tooltip}>
+            <button type="button" className={styles.tooltipButton} aria-label={`About ${label}`}>
+              <IconInfo size={14} />
+            </button>
+          </Tooltip>
+        ) : null}
+      </div>
       {children}
       {help ? (
         <p className={styles.help} id={`${htmlFor}-help`}>
@@ -55,16 +67,17 @@ function describedByIds(id: string, help?: string, error?: string | null) {
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   help?: string;
+  tooltip?: string;
   error?: string | null;
   mono?: boolean;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, help, error, mono, id, className, required, ...props }, ref) => {
+  ({ label, help, tooltip, error, mono, id, className, required, ...props }, ref) => {
     const autoId = useId();
     const inputId = id ?? autoId;
     return (
-      <FieldShell label={label} htmlFor={inputId} help={help} error={error} required={required}>
+      <FieldShell label={label} htmlFor={inputId} help={help} tooltip={tooltip} error={error} required={required}>
         <input
           ref={ref}
           id={inputId}
@@ -90,16 +103,17 @@ Input.displayName = "Input";
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label: string;
   help?: string;
+  tooltip?: string;
   error?: string | null;
   mono?: boolean;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, help, error, mono, id, className, required, ...props }, ref) => {
+  ({ label, help, tooltip, error, mono, id, className, required, ...props }, ref) => {
     const autoId = useId();
     const inputId = id ?? autoId;
     return (
-      <FieldShell label={label} htmlFor={inputId} help={help} error={error} required={required}>
+      <FieldShell label={label} htmlFor={inputId} help={help} tooltip={tooltip} error={error} required={required}>
         <textarea
           ref={ref}
           id={inputId}
@@ -125,12 +139,13 @@ Textarea.displayName = "Textarea";
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   help?: string;
+  tooltip?: string;
   error?: string | null;
   children: ReactNode;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, help, error, id, className, required, children, ...props }, ref) => {
+  ({ label, help, tooltip, error, id, className, required, children, ...props }, ref) => {
     const autoId = useId();
     const inputId = id ?? autoId;
     const baseClass = [styles.select, error ? styles.selectInvalid : "", className ?? ""]
@@ -155,7 +170,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     }
 
     return (
-      <FieldShell label={label} htmlFor={inputId} help={help} error={error} required={required}>
+      <FieldShell label={label} htmlFor={inputId} help={help} tooltip={tooltip} error={error} required={required}>
         <select
           ref={ref}
           id={inputId}

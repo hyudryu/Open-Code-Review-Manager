@@ -74,6 +74,14 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const PROFILE_TOOLTIPS: Record<string, string> = {
+  "Concurrency (files in parallel)": "How many files OCR reviews in parallel for each job.",
+  "Per-file timeout (minutes)": "Maximum time OCR may spend reviewing one file.",
+  "LLM HTTP timeout (seconds)": "Maximum time to wait for one request to the AI provider.",
+  "Max tools": "Maximum tool calls OCR may make during a review.",
+  "Max Git processes": "Maximum Git commands OCR may run at the same time.",
+};
+
 function toNumber(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -86,6 +94,7 @@ function numField(
   error: string | undefined,
   props: React.InputHTMLAttributes<HTMLInputElement>,
   help?: string,
+  tooltip?: string,
 ) {
   return (
     <Input
@@ -94,6 +103,7 @@ function numField(
       inputMode="numeric"
       error={error}
       help={help}
+      tooltip={tooltip ?? PROFILE_TOOLTIPS[label]}
       {...props}
     />
   );
@@ -342,16 +352,17 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
             required
             disabled={profile.data?.is_system}
             error={errors.name?.message}
+            tooltip="A recognizable name for this reusable review configuration."
             {...register("name")}
           />
-          <Input label="Description" {...register("description")} />
+          <Input label="Description" tooltip="Optional notes explaining when this profile should be used." {...register("description")} />
         </div>
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
           <Controller
             control={control}
             name="provider_profile_id"
             render={({ field }) => (
-              <Select label="Provider" value={field.value} onChange={field.onChange}>
+              <Select label="Provider" tooltip="The AI provider connection used for reviews from this profile." value={field.value} onChange={field.onChange}>
                 <option value="">None (OCR default config)</option>
                 {(providers.data ?? []).map((p) => (
                   <option key={p.id} value={p.id} disabled={!p.enabled}>
@@ -371,6 +382,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
                 value={field.value}
                 onChange={field.onChange}
                 help={providerId ? undefined : "Select a provider to pick a model."}
+                tooltip="The provider model used to analyze code; leave default to let the provider choose."
               >
                 <option value="">Provider default</option>
                 {(models.data ?? []).map((m) => (
@@ -387,6 +399,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           label="Review language (optional)"
           placeholder="en"
           help="Language for OCR's review output."
+          tooltip="Language OCR should use when writing review findings."
           {...register("language")}
         />
       </section>
@@ -420,6 +433,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
                 onChange={field.onChange}
                 disabled={!planningSupported}
                 help={planningSupported ? "auto uses the changed-lines threshold." : "Automatic (controlled by installed OCR)"}
+                tooltip="Controls whether OCR plans the review before analyzing changes."
               >
                 <option value="auto">auto</option>
                 <option value="always">always</option>
@@ -431,12 +445,14 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
             label="Plan threshold (changed lines)"
             type="number"
             disabled={!planningSupported}
+            tooltip="With automatic planning, use a plan when the change exceeds this many lines."
             {...register("plan_threshold_lines")}
           />
           <Input
             label="Max tokens"
             type="number"
             disabled={!planningSupported}
+            tooltip="Maximum AI token budget available to OCR for a review."
             {...register("max_tokens")}
           />
         </div>
@@ -445,6 +461,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           mono
           placeholder="templates/my-task-template.json"
           disabled={!templateSupported}
+          tooltip="Path to a task-template JSON file that replaces OCR's built-in template."
           help={
             templateSupported
               ? "Complete task template JSON; replaces the embedded template for jobs using this profile."
@@ -461,16 +478,18 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           rows={3}
           mono
           placeholder={"*.lock\ndist/**"}
+          tooltip="Files or folders to skip, using one glob pattern per line."
           {...register("exclude_patterns")}
         />
         <div className={layout.grid2} style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <Input label="Rule file path" mono placeholder="rules/default.md" {...register("rule_file_path")} />
-          <Input label="Tools configuration file" mono placeholder="tools.json" {...register("tools_file_path")} />
+          <Input label="Rule file path" mono placeholder="rules/default.md" tooltip="Path to Markdown rules OCR should follow while reviewing." {...register("rule_file_path")} />
+          <Input label="Tools configuration file" mono placeholder="tools.json" tooltip="Path to the OCR tools configuration file available during reviews." {...register("tools_file_path")} />
         </div>
         <Textarea
           label="Background context template (Markdown)"
           rows={4}
           placeholder="Review guidance prepended to every job using this profile…"
+          tooltip="Markdown context added to every review that uses this profile."
           {...register("background_template")}
         />
       </section>
@@ -502,6 +521,7 @@ function ProfileEditor({ profileId, onDeleted }: { profileId: string | null; onD
           placeholder="--some-flag value"
           error={argsError}
           help="Parsed into an argv array. Shell metacharacters and control-plane-owned flags are rejected. Jobs using custom arguments are marked."
+          tooltip="Advanced command-line options passed to OCR after validation."
           {...register("additional_arguments")}
         />
         {argsPreview.length > 0 ? (

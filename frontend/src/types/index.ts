@@ -284,6 +284,17 @@ export interface PullRequestList {
   warning: string | null;
 }
 
+export interface GitHubAccount {
+  login: string;
+  active: boolean;
+  state: string;
+}
+
+export interface GitHubAuthStatus {
+  accounts: GitHubAccount[];
+  error: string | null;
+}
+
 export interface PreviewFile {
   path: string;
   status: string | null;
