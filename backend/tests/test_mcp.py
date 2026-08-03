@@ -63,6 +63,14 @@ async def test_submit_get_findings_flow(project, fake_ocr, make_worker) -> None:
     assert submitted["status_url"].endswith(job_id)
     assert submitted["result_resource"] == f"ocr://jobs/{job_id}/result"
 
+    # The queued job already carries progress + ETA hints for pacing polls.
+    queued = await mcp_server.ocr_get_job(job_id)
+    assert queued["status"] == "queued"
+    assert "progress" in queued
+    assert "eta_seconds" in queued
+    assert "eta" in queued
+    assert "poll_interval_seconds" in queued
+
     worker = make_worker()
     await worker.drain()
 
@@ -71,6 +79,11 @@ async def test_submit_get_findings_flow(project, fake_ocr, make_worker) -> None:
     assert job["summary"]["files_reviewed"] == 1
     assert job["comments_count"] == 1
     assert job["comments"][0]["path"] == "hello.py"
+    # Terminal job: stop polling (eta 0 / poll 0) with final progress.
+    assert job["eta_seconds"] == 0
+    assert job["eta"] == "now"
+    assert job["poll_interval_seconds"] == 0
+    assert job["progress"]["completed_files"] == 1
 
     # The displayed OCR session id is accepted anywhere status/results are
     # requested, so callers do not need to retain the manager job id.

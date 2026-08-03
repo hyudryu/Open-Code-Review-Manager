@@ -17,6 +17,7 @@ from app.db import models
 from app.db.session import get_session_factory
 from app.queue.service import TERMINAL_STATUSES
 from app.services.errors import ServiceError
+from app.services.eta import EtaService
 from app.services.findings import FindingService
 from app.services.jobs import JobService
 from app.services.profiles import ProfileService
@@ -296,6 +297,8 @@ async def ocr_get_job(job_id: str) -> dict[str, Any]:
         )
         payload["comments_count"] = total
         payload["comments"] = [_finding_payload(finding) for finding in findings]
+        # ETA + progress so the agent knows how long to wait before polling again.
+        payload.update(await EtaService(session).describe(job))
 
     return payload
 
@@ -546,7 +549,9 @@ def build_mcp_server() -> FastMCP:
             "   registered).\n"
             "2. Submit review: call submit_review with the project id and mode.\n"
             "3. Wait and read the complete result: call get_job_results.\n"
-            "4. For a lightweight status check instead, call get_job.\n\n"
+            "4. For a lightweight status check instead, call get_job. When it "
+            "returns, wait roughly poll_interval_seconds before calling again "
+            "(0 means the job is done — stop polling).\n\n"
             "MODES:\n"
             "  range (default) — compare two branches. base_ref auto-defaults "
             "  to the project's main branch; only target_ref is required.\n"
@@ -678,7 +683,13 @@ def build_mcp_server() -> FastMCP:
             "  resolved_shas   — {base_sha, target_sha, commit_sha} resolved at queue time\n"
             "  warnings        — list of warning objects\n"
             "  ocr_session_id  — OCR session id (for log inspection)\n"
-            "  comments        — review comments/findings available for the job"
+            "  comments        — review comments/findings available for the job\n"
+            "  progress        — {total_files, completed_files, percent} as the review runs\n"
+            "  eta_seconds     — estimated seconds until a terminal state (0 when done,\n"
+            "                    null when not estimable)\n"
+            "  eta             — human-readable ETA (e.g. \"about 3 min\")\n"
+            "  poll_interval_seconds — suggested seconds to wait before calling this\n"
+            "                    tool again (0 when done)"
         ),
     )(ocr_get_job)
     mcp.tool(
@@ -690,7 +701,11 @@ def build_mcp_server() -> FastMCP:
             "resolved refs, and configuration snapshot. This is the blocking "
             "counterpart to the quick ocr_get_job status call. "
             "timeout_seconds=0 (default) waits indefinitely. With a positive "
-            "timeout, wait_expired=true means no partial result was returned."
+            "timeout, wait_expired=true means no partial result was returned "
+            "and no result object is included. The response always carries the "
+            "same progress / eta_seconds / eta / poll_interval_seconds hints "
+            "as ocr_get_job, so when wait_expired you can poll again after "
+            "poll_interval_seconds instead of guessing."
         ),
     )(ocr_get_job_results)
     mcp.tool(
