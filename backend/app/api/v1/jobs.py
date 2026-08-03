@@ -21,16 +21,19 @@ from app.schemas.jobs import (
     FindingOut,
     FindingUpdate,
     JobCreate,
+    JobDetailOut,
     JobMoveRequest,
     JobOut,
     JobPreviewOut,
     JobPreviewRequest,
+    JobProgressOut,
     JobRetryRequest,
     JobUpdate,
     LogOut,
     SessionOut,
 )
 from app.services.errors import NotFoundError
+from app.services.eta import EtaService
 from app.services.findings import FindingService
 from app.services.jobs import EXPORT_FORMATS, JobService
 from app.services.waits import wait_for_job_terminal
@@ -93,14 +96,27 @@ async def preview_job(
     return JobPreviewOut(**result.model_dump())
 
 
-@router.get("/{job_id}", response_model=JobOut)
+async def _job_detail(session, job: models.ReviewJob) -> JobDetailOut:
+    """Build a job-detail response, attaching live progress + ETA hints."""
+
+    data = JobDetailOut.model_validate(job)
+    data.findings_count = await _findings_count(session, job.id)
+    eta = await EtaService(session).describe(job)
+    data.progress = JobProgressOut(**eta["progress"])
+    data.eta_seconds = eta["eta_seconds"]
+    data.eta = eta["eta"]
+    data.poll_interval_seconds = eta["poll_interval_seconds"]
+    return data
+
+
+@router.get("/{job_id}", response_model=JobDetailOut)
 async def get_job(
     job_id: str,
     wait_for_terminal: bool = Query(default=False),
     timeout_seconds: int = Query(default=300, ge=0, le=86400),
     service: JobService = Depends(job_service),
 ):
-    """Job detail. With ``wait_for_terminal=true`` this long-polls
+    """Job detail + ETA. With ``wait_for_terminal=true`` this long-polls
     server-side until a terminal status or the timeout (SPEC §13/§14)."""
 
     job = await service.get(job_id)
@@ -111,12 +127,8 @@ async def get_job(
         factory = get_session_factory()
         async with factory() as session:
             job = await JobService(session).get(job_id)
-            data = JobOut.model_validate(job)
-            data.findings_count = await _findings_count(session, job.id)
-            return data
-    data = JobOut.model_validate(job)
-    data.findings_count = await _findings_count(service.session, job.id)
-    return data
+            return await _job_detail(session, job)
+    return await _job_detail(service.session, job)
 
 
 @router.patch("/{job_id}", response_model=JobOut)

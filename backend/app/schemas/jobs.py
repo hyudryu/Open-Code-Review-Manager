@@ -91,6 +91,28 @@ class JobOut(ORMModel):
         return value.isoformat().replace("+00:00", "Z")
 
 
+class JobProgressOut(BaseModel):
+    """Live review progress reconstructed from persisted job events."""
+
+    total_files: int | None = None
+    completed_files: int = 0
+    percent: float | None = None
+
+
+class JobDetailOut(JobOut):
+    """Job detail with ETA/progress hints for callers that poll (agents).
+
+    ``eta_seconds`` is 0 when the job is already terminal (stop polling),
+    ``None`` when the remaining time cannot be estimated; ``poll_interval_seconds``
+    is the suggested seconds to wait before checking again.
+    """
+
+    progress: JobProgressOut | None = None
+    eta_seconds: int | None = None
+    eta: str | None = None
+    poll_interval_seconds: int | None = None
+
+
 class JobMoveRequest(BaseModel):
     action: Literal["top", "up", "down"]
 

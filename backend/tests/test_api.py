@@ -356,6 +356,11 @@ async def test_full_happy_path(client, repo, tmp_path) -> None:
     job = response.json()
     assert job["status"] == "completed", job.get("status_message")
     assert job["result_summary_json"]["files_reviewed"] == 1
+    # ETA/progress hints are attached to job detail so agents can pace polls.
+    assert job["eta_seconds"] == 0
+    assert job["eta"] == "now"
+    assert job["poll_interval_seconds"] == 0
+    assert job["progress"]["completed_files"] == 1
     for timestamp in ("queued_at", "started_at", "completed_at"):
         assert job[timestamp].endswith("Z")
 
