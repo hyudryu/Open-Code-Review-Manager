@@ -53,15 +53,40 @@ def test_running_eta_seconds() -> None:
     assert running_eta_seconds(
         total_files=5, completed_files=5, elapsed_seconds=100.0
     ) == 0.0
-    # No inventory / no completions / no elapsed → unknown.
+    # No inventory → unknown.
     assert running_eta_seconds(
         total_files=None, completed_files=1, elapsed_seconds=100.0
     ) is None
+    # Known inventory but no observed pace yet (no completions / no elapsed):
+    # with history we fall back to the historical-only estimate (matches the
+    # frontend), without history it stays unknown.
     assert running_eta_seconds(
         total_files=5, completed_files=0, elapsed_seconds=100.0
     ) is None
     assert running_eta_seconds(
         total_files=5, completed_files=1, elapsed_seconds=0.0
+    ) is None
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=0,
+        elapsed_seconds=0.0,
+        historical_per_file=12.0,
+    ) == 60.0  # 5 remaining * 12 s/file
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=1,
+        elapsed_seconds=0.0,
+        historical_per_file=12.0,
+    ) == 48.0  # 4 remaining * 12 s/file
+    # Non-positive history is treated as no history → unknown.
+    assert running_eta_seconds(
+        total_files=5, completed_files=0, elapsed_seconds=0.0, historical_per_file=0.0
+    ) is None
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=0,
+        elapsed_seconds=0.0,
+        historical_per_file=-1.0,
     ) is None
 
 
@@ -170,6 +195,36 @@ async def test_running_job_without_inventory_is_unknown(project) -> None:
     assert result["eta_seconds"] is None
     assert result["eta"] is None
     assert result["poll_interval_seconds"] == 5
+
+
+async def test_running_job_no_completions_uses_history(project) -> None:
+    # A running job with a known inventory but zero completed files still
+    # produces an estimate by falling back to the historical per-file average
+    # (mirrors the frontend's estimateActiveJobETA).
+    project_id, _ = project
+    now = datetime.now(timezone.utc)
+    await _seed_job(
+        project_id,
+        status="completed",
+        started_at=now - timedelta(seconds=100),
+        completed_at=now,
+        result_summary_json={"files_reviewed": 5},
+    )
+    job_id = await _seed_job(
+        project_id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=10),
+    )
+    await _add_event(job_id, "job.inventory", {"total_files": 5})
+    # No file_completed events — no observed pace.
+
+    result = await _describe(job_id)
+    assert result["progress"]["total_files"] == 5
+    assert result["progress"]["completed_files"] == 0
+    assert result["progress"]["percent"] == 0.0
+    assert result["eta_seconds"] is not None and result["eta_seconds"] > 0
+    assert result["eta"] is not None
+    assert result["poll_interval_seconds"] in (5, 10, 15, 20, 25, 30)
 
 
 async def test_queued_job_no_history_unknown(project) -> None:

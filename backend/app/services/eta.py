@@ -93,8 +93,11 @@ def running_eta_seconds(
 ) -> float | None:
     """Estimated seconds remaining for a running job (``None`` = unknown).
 
-    Requires a known inventory AND at least one completed file to observe the
-    job's own pace. Returns 0 once every file has completed.
+    Requires a known inventory. A job with at least one completed file blends
+    its own observed pace with the historical average; a job that has not
+    completed any file yet falls back to the historical per-file average so
+    the estimate is stable from the start (mirroring the frontend). Returns 0
+    once every file has completed.
     """
 
     if total_files is None or total_files <= 0:
@@ -103,6 +106,11 @@ def running_eta_seconds(
     if remaining <= 0:
         return 0.0
     if completed_files <= 0 or elapsed_seconds <= 0:
+        # No observed pace yet — fall back to the historical-only estimate
+        # (matches estimateActiveJobETA on the frontend). Unknown when there
+        # is no history to lean on either.
+        if historical_per_file is not None and historical_per_file > 0:
+            return remaining * historical_per_file
         return None
     observed = elapsed_seconds / completed_files
     blended = blend_pace(observed, historical_per_file, completed_files)
