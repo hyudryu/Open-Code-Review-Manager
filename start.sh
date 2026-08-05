@@ -5,4 +5,4 @@
 # http://127.0.0.1:8372 with migrations, queue, and webhook workers.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$ROOT/scripts/start.sh" "$@"
+exec bash "$ROOT/scripts/start.sh" "$@"

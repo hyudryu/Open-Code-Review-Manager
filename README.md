@@ -86,7 +86,8 @@ queue and results used by the web UI. After connecting the agent to
   `ocr_get_job` after the suggested `poll_interval_seconds` or uses
   `ocr_get_job_results` to wait for completion.
 - **Review current work:** “Review my uncommitted changes and summarize the
-  findings.” The agent submits a `workspace` review and retrieves the results
+  findings.” The agent submits a `workspace` review, waits for terminal status
+  with `ocr_get_job_results` or polls `ocr_get_job`, then retrieves the results
   with `ocr_get_findings` or `ocr_get_job_results`.
 - **Plan the fixes:** “Turn the findings from this review into an ordered fix
   plan.” The agent can use the `turn_findings_into_fix_plan` MCP prompt after
