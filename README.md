@@ -54,6 +54,48 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Port 9000
 scripts/start.sh --port 9000
 ```
 
+### Root launchers
+
+The repository root includes convenience launchers for the same startup commands:
+
+| File | Platform | Purpose |
+| --- | --- | --- |
+| `start.bat` | Windows | Runs the production startup flow through PowerShell. Supports `--build` and `--port`. |
+| `start.sh` | macOS, Linux, or Git Bash | Runs the production startup flow through the POSIX shell script. Supports `--build` and `--port`. |
+| `start-network.bat` | Windows | Starts a separate LAN-accessible instance on port `8373` by default. See [LAN access](#lan-access-windows) below. |
+
+Examples from the repository root:
+
+```bat
+start.bat --build --port 9000
+```
+
+```bash
+bash ./start.sh --build --port 9000
+```
+
+### MCP agent use cases
+
+The MCP server lets an AI agent manage reviews asynchronously through the same
+queue and results used by the web UI. After connecting the agent to
+`http://127.0.0.1:8372/mcp`, you can ask it to:
+
+- **Queue a pull request:** “Queue this pull request for a code review and
+  check back after the ETA for the comments.” The agent registers or finds the
+  project, submits the PR review, saves the returned `job_id`, and polls with
+  `ocr_get_job` after the suggested `poll_interval_seconds` or uses
+  `ocr_get_job_results` to wait for completion.
+- **Review current work:** “Review my uncommitted changes and summarize the
+  findings.” The agent submits a `workspace` review, waits for terminal status
+  with `ocr_get_job_results` or polls `ocr_get_job`, then retrieves the results
+  with `ocr_get_findings` or `ocr_get_job_results`.
+- **Plan the fixes:** “Turn the findings from this review into an ordered fix
+  plan.” The agent can use the `turn_findings_into_fix_plan` MCP prompt after
+  retrieving the job’s findings.
+
+See [docs/MCP.md](docs/MCP.md) for the complete tool list, client setup, and
+request details.
+
 Configuration is optional; copy [.env.example](.env.example) to `.env` to override ports, paths, or executables. Provider credentials are entered in the UI and stored in the OS keyring, never in the database, logs, or exports.
 
 ### GitHub pull request access
