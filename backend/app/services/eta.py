@@ -190,6 +190,11 @@ class EtaService(ServiceBase):
         )
         result = await self.session.execute(stmt)
         total_files: int | None = None
+        # Whether ``total_files`` came from a real ``job.inventory`` event.
+        # The started-files fallback below is only a live denominator for
+        # percent; it must NOT be trusted as the ETA denominator, or a review
+        # that never received an inventory would be estimated as a 1-file job.
+        has_real_inventory = False
         completed_files = 0
         seen_completed: set[str] = set()
         # job.file_started drives the live denominator when OCR 1.8+ emits no
@@ -201,6 +206,7 @@ class EtaService(ServiceBase):
                 count = payload.get("total_files")
                 if isinstance(count, int) and count > 0:
                     total_files = count
+                    has_real_inventory = True
             elif event.event_type == "job.file_started":
                 started_files += 1
             elif event.event_type == "job.file_completed":
@@ -217,6 +223,7 @@ class EtaService(ServiceBase):
             "total_files": total_files,
             "completed_files": completed_files,
             "percent": progress_percent(completed_files, total_files),
+            "has_real_inventory": has_real_inventory,
         }
 
     async def _history_stats(self) -> dict[str, Any]:
@@ -267,6 +274,11 @@ class EtaService(ServiceBase):
         total = 0.0
         for job in result.scalars():
             progress = await self._read_progress(job.id)
+            # Only a real inventory is a trustworthy ETA denominator; a
+            # started-only job (no job.inventory) stays unknown so it cannot
+            # drag the queued estimate down toward ~one file of work.
+            if not progress["has_real_inventory"]:
+                continue
             remaining = running_eta_seconds(
                 total_files=progress["total_files"],
                 completed_files=progress["completed_files"],
@@ -320,8 +332,14 @@ class EtaService(ServiceBase):
         # preparing / running / cancelling — pace from this job's own progress.
         elapsed_seconds = _elapsed_seconds(job)
         history = await self._history_stats()
+        # Only a real ``job.inventory`` total is a safe ETA denominator. Without
+        # one, ``total_files`` is a synthetic started-count that would make the
+        # historical fallback report ~one file of ETA; keep those jobs unknown.
+        eta_total_files = (
+            progress["total_files"] if progress["has_real_inventory"] else None
+        )
         eta_seconds = running_eta_seconds(
-            total_files=progress["total_files"],
+            total_files=eta_total_files,
             completed_files=progress["completed_files"],
             elapsed_seconds=elapsed_seconds,
             historical_per_file=history["avg_per_file_s"],
