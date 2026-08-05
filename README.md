@@ -54,6 +54,26 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Port 9000
 scripts/start.sh --port 9000
 ```
 
+### Root launchers
+
+The repository root includes convenience launchers for the same startup commands:
+
+| File | Platform | Purpose |
+| --- | --- | --- |
+| `start.bat` | Windows | Runs the production startup flow through PowerShell. Supports `--build` and `--port`. |
+| `start.sh` | macOS, Linux, or Git Bash | Runs the production startup flow through the POSIX shell script. Supports `--build` and `--port`. |
+| `start-network.bat` | Windows | Starts a separate LAN-accessible instance on port `8373` by default. See [LAN access](#lan-access-windows) below. |
+
+Examples from the repository root:
+
+```bat
+start.bat --build --port 9000
+```
+
+```bash
+./start.sh --build --port 9000
+```
+
 Configuration is optional; copy [.env.example](.env.example) to `.env` to override ports, paths, or executables. Provider credentials are entered in the UI and stored in the OS keyring, never in the database, logs, or exports.
 
 ### GitHub pull request access
