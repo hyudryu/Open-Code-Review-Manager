@@ -71,7 +71,7 @@ start.bat --build --port 9000
 ```
 
 ```bash
-./start.sh --build --port 9000
+bash ./start.sh --build --port 9000
 ```
 
 ### MCP agent use cases
