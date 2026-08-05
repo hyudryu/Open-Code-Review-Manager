@@ -53,15 +53,40 @@ def test_running_eta_seconds() -> None:
     assert running_eta_seconds(
         total_files=5, completed_files=5, elapsed_seconds=100.0
     ) == 0.0
-    # No inventory / no completions / no elapsed → unknown.
+    # No inventory → unknown.
     assert running_eta_seconds(
         total_files=None, completed_files=1, elapsed_seconds=100.0
     ) is None
+    # Known inventory but no observed pace yet (no completions / no elapsed):
+    # with history we fall back to the historical-only estimate (matches the
+    # frontend), without history it stays unknown.
     assert running_eta_seconds(
         total_files=5, completed_files=0, elapsed_seconds=100.0
     ) is None
     assert running_eta_seconds(
         total_files=5, completed_files=1, elapsed_seconds=0.0
+    ) is None
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=0,
+        elapsed_seconds=0.0,
+        historical_per_file=12.0,
+    ) == 60.0  # 5 remaining * 12 s/file
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=1,
+        elapsed_seconds=0.0,
+        historical_per_file=12.0,
+    ) == 48.0  # 4 remaining * 12 s/file
+    # Non-positive history is treated as no history → unknown.
+    assert running_eta_seconds(
+        total_files=5, completed_files=0, elapsed_seconds=0.0, historical_per_file=0.0
+    ) is None
+    assert running_eta_seconds(
+        total_files=5,
+        completed_files=0,
+        elapsed_seconds=0.0,
+        historical_per_file=-1.0,
     ) is None
 
 
@@ -137,6 +162,7 @@ async def test_terminal_job_stops_polling(project) -> None:
         "total_files": None,
         "completed_files": 0,
         "percent": None,
+        "has_real_inventory": False,
     }
 
 
@@ -167,6 +193,69 @@ async def test_running_job_without_inventory_is_unknown(project) -> None:
         started_at=datetime.now(timezone.utc) - timedelta(seconds=50),
     )
     result = await _describe(job_id)
+    assert result["eta_seconds"] is None
+    assert result["eta"] is None
+    assert result["poll_interval_seconds"] == 5
+
+
+async def test_running_job_no_completions_uses_history(project) -> None:
+    # A running job with a known inventory but zero completed files still
+    # produces an estimate by falling back to the historical per-file average
+    # (mirrors the frontend's estimateActiveJobETA).
+    project_id, _ = project
+    now = datetime.now(timezone.utc)
+    await _seed_job(
+        project_id,
+        status="completed",
+        started_at=now - timedelta(seconds=100),
+        completed_at=now,
+        result_summary_json={"files_reviewed": 5},
+    )
+    job_id = await _seed_job(
+        project_id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=10),
+    )
+    await _add_event(job_id, "job.inventory", {"total_files": 5})
+    # No file_completed events — no observed pace.
+
+    result = await _describe(job_id)
+    assert result["progress"]["total_files"] == 5
+    assert result["progress"]["completed_files"] == 0
+    assert result["progress"]["percent"] == 0.0
+    assert result["eta_seconds"] is not None and result["eta_seconds"] > 0
+    assert result["eta"] is not None
+    assert result["poll_interval_seconds"] in (5, 10, 15, 20, 25, 30)
+
+
+async def test_running_job_started_only_stays_unknown(project) -> None:
+    # No ``job.inventory`` event: ``_read_progress`` falls back to a synthetic
+    # total derived from file_started events. That synthetic total must NOT be
+    # treated as a real denominator, or the historical fallback would report
+    # ~one file of ETA for what is really an unknown-size review.
+    project_id, _ = project
+    now = datetime.now(timezone.utc)
+    await _seed_job(
+        project_id,
+        status="completed",
+        started_at=now - timedelta(seconds=100),
+        completed_at=now,
+        result_summary_json={"files_reviewed": 5},
+    )
+    job_id = await _seed_job(
+        project_id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+    )
+    # file_started drives the synthetic denominator, but there is no inventory.
+    await _add_event(job_id, "job.file_started", {"file": "a.py"})
+    await _add_event(job_id, "job.file_started", {"file": "b.py"})
+
+    result = await _describe(job_id)
+    # Progress surfaces the started-derived total for display, but ETA stays
+    # unknown because the real inventory is missing.
+    assert result["progress"]["total_files"] == 2
+    assert result["progress"]["has_real_inventory"] is False
     assert result["eta_seconds"] is None
     assert result["eta"] is None
     assert result["poll_interval_seconds"] == 5
