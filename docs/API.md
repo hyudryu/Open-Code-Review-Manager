@@ -220,12 +220,23 @@ GET  /system/info                full diagnostics snapshot (SPEC §30)
 GET  /system/ocr                 OCR detection + capabilities; "ocr_not_found" when absent
 POST /system/ocr/test            force re-probe
 GET  /system/mcp                 MCP server status: transport, URL, tool/resource/prompt counts
+GET  /ocr/mcp-servers            MCP servers configured for the OCR review engine
+GET  /ocr/mcp-servers/{name}     one OCR review-engine MCP server
+PUT  /ocr/mcp-servers/{name}     create/replace (body = server config; see below)
+DELETE /ocr/mcp-servers/{name}   remove from ~/.opencodereview/config.json
 GET  /system/diagnostics/bundle  sanitized zip download (no credentials, no source
                                  content; log excerpts capped at 16 KB and redacted)
 GET  /system/python              interpreter info
 GET  /settings                   editable settings map
 PATCH /settings                  {"changes": {"queue.global_concurrency": 2, …}}
 ```
+
+OCR review-engine MCP server config (routes above) mirrors the upstream
+`mcp_servers` map: `type` (`stdio`, default, or `remote`), `command` + `args`
+(stdio), `url` + `headers` (remote), `tools` allowlist, `setup`, and `env`
+(`KEY=VALUE` strings). A `stdio` server requires `command`; a `remote` server
+requires `url`. These are the servers whose tools become available to the
+review agent during reviews.
 
 Editable setting keys: `queue.global_concurrency`,
 `queue.per_project_concurrency`, `queue.per_provider_concurrency`,

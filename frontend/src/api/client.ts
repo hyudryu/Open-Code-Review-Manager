@@ -237,6 +237,8 @@ export const api = {
     request<T>("GET", path, undefined, params, signal),
   post: <T>(path: string, body?: unknown, params?: QueryParams) =>
     request<T>("POST", path, body, params),
+  put: <T>(path: string, body?: unknown, params?: QueryParams) =>
+    request<T>("PUT", path, body, params),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   delete: <T>(path: string) => request<T>("DELETE", path),
 };

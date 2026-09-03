@@ -11,6 +11,7 @@ from app.db.session import get_session_factory
 from app.services.findings import FindingService
 from app.services.folders import FolderService
 from app.services.jobs import JobService
+from app.services.ocr_mcp import OcrMcpServerService
 from app.services.profiles import ProfileService
 from app.services.projects import ProjectService
 from app.services.providers import ProviderService
@@ -66,3 +67,8 @@ def diagnostics_service(db: AsyncSession = Depends(get_db)) -> DiagnosticsServic
 
 def webhook_service(db: AsyncSession = Depends(get_db)) -> WebhookService:
     return WebhookService(db)
+
+
+def ocr_mcp_server_service() -> OcrMcpServerService:
+    """File-backed service — no database session needed."""
+    return OcrMcpServerService()
