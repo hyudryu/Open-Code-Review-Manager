@@ -133,17 +133,22 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
         assert "job.file_completed" in types
         assert "job.log" in types
         assert "job.usage" in types
+        assert "job.model_request" in types
         assert "job.summary" in types
         inventory = next(e for e in events if e.event_type == "job.inventory")
         assert inventory.payload_json == {
             "files": ["hello.py"],
             "total_files": 1,
         }
+        model_request = next(
+            e for e in events if e.event_type == "job.model_request"
+        )
+        assert model_request.payload_json == {"count": 1, "seq": 2}
         usage = next(e for e in events if e.event_type == "job.usage")
         assert usage.payload_json == {
             "input_tokens": 100,
             "output_tokens": 50,
-            "seq": 2,
+            "seq": 3,
         }
 
     # Artifacts on disk.
@@ -220,14 +225,24 @@ async def test_early_log_is_unbuffered_and_persisted_while_running(
     persisted_log = None
     for _ in range(50):
         async with session_scope() as session:
-            persisted_log = (
+            logs = (
                 await session.execute(
                     select(models.JobEvent).where(
                         models.JobEvent.job_id == job_id,
                         models.JobEvent.event_type == "job.log",
                     )
                 )
-            ).scalar_one_or_none()
+            ).scalars().all()
+        # Session activity lines (model requests/responses) also land in
+        # job.log; look for the early stdout line among them.
+        persisted_log = next(
+            (
+                e
+                for e in logs
+                if (e.payload_json or {}).get("text") == "review started"
+            ),
+            None,
+        )
         if persisted_log is not None:
             break
         await asyncio.sleep(0.02)

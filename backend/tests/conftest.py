@@ -106,6 +106,12 @@ def run_review(argv):
         emit({"type": "session_start"})
         emit({"type": "file_started", "filePath": "hello.py"})
         emit({
+            "type": "llm_request",
+            "filePath": "hello.py",
+            "taskType": "main_task",
+            "requestNo": 1,
+        })
+        emit({
             "type": "llm_response",
             "filePath": "hello.py",
             "taskType": "main_task",

@@ -92,10 +92,16 @@ class JobOut(ORMModel):
 
 
 class JobProgressOut(BaseModel):
-    """Live review progress reconstructed from persisted job events."""
+    """Live review progress reconstructed from persisted job events.
+
+    ``percent`` includes a small bounded credit for observed model requests
+    (see ``eta.MICRO_STEP_FILES``), so it can sit slightly above
+    ``completed_files / total_files`` while the review is mid-file.
+    """
 
     total_files: int | None = None
     completed_files: int = 0
+    model_requests: int = 0
     percent: float | None = None
 
 

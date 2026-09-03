@@ -171,8 +171,12 @@ events with id > `Last-Event-ID` (header or `?lastEventId=`), then streams
 live events with 15 s keepalives. The stream closes after a terminal event
 (`job.status` with `to` ∈ terminal states). Event types: `job.queued`,
 `job.status`, `job.phase`, `job.file_started`, `job.file_completed`,
-`job.warning`, `job.usage`, `job.summary`, `job.log`. `job.usage` contains
-cumulative `input_tokens` and `output_tokens` for the active review.
+`job.warning`, `job.usage`, `job.model_request`, `job.summary`, `job.log`.
+`job.usage` contains cumulative `input_tokens` and `output_tokens` for the
+active review. `job.model_request` carries a cumulative `count` of observed
+model requests; progress percentages add a small bounded credit per request
+(`MICRO_STEP_FILES`/`MICRO_CAP_FILES` in `app/services/eta.py`) so the bar
+moves while planning/grouping requests run before the first file completes.
 
 **Reasoning (opt-in)** — `thinking` is `null` everywhere unless
 `include_reasoning=true` is passed on the findings endpoints or the export

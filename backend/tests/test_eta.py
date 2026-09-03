@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.db import models
 from app.db.session import session_scope
 from app.services.eta import (
     EtaService,
     blend_pace,
     format_eta,
+    micro_progress_files,
     poll_interval_seconds,
     progress_percent,
     running_eta_seconds,
@@ -30,6 +33,24 @@ def test_progress_percent() -> None:
     assert progress_percent(5, 5) == 100.0
     assert progress_percent(2, None) is None
     assert progress_percent(2, 0) is None
+
+
+def test_progress_percent_micro_credit() -> None:
+    # Model requests are themselves small progress: each credits a fraction
+    # of a file so the bar moves before the first file completes.
+    assert progress_percent(0, 10, model_requests=5) == 5.0
+    assert progress_percent(0, 18, model_requests=3) == 1.7
+    # Completed files and the request credit add up, clamped at 100.
+    assert progress_percent(1, 10, model_requests=30) == 30.0
+    assert progress_percent(10, 10, model_requests=50) == 100.0
+
+
+def test_micro_progress_files_caps_request_credit() -> None:
+    assert micro_progress_files(0) == 0.0
+    assert micro_progress_files(1) == pytest.approx(0.1)
+    assert micro_progress_files(19) == pytest.approx(1.9)
+    assert micro_progress_files(20) == 2.0
+    assert micro_progress_files(500) == 2.0  # capped
 
 
 def test_blend_pace_prefers_own_pace_as_files_complete() -> None:
@@ -161,6 +182,7 @@ async def test_terminal_job_stops_polling(project) -> None:
     assert result["progress"] == {
         "total_files": None,
         "completed_files": 0,
+        "model_requests": 0,
         "percent": None,
         "has_real_inventory": False,
     }
@@ -183,6 +205,26 @@ async def test_running_job_eta_from_progress(project) -> None:
     assert result["progress"]["percent"] == 20.0
     assert result["eta_seconds"] is not None and result["eta_seconds"] > 0
     assert result["poll_interval_seconds"] in (5, 10, 15, 20, 25, 30)
+
+
+async def test_running_job_micro_progress_from_model_requests(project) -> None:
+    # Requests observed before the first completion still register progress.
+    project_id, _ = project
+    job_id = await _seed_job(
+        project_id,
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+    )
+    await _add_event(job_id, "job.inventory", {"total_files": 5})
+    for count in (1, 2, 3):
+        await _add_event(job_id, "job.model_request", {"count": count, "seq": count})
+    # A delayed out-of-order count must not lower the running total.
+    await _add_event(job_id, "job.model_request", {"count": 2, "seq": 9})
+
+    result = await _describe(job_id)
+    assert result["progress"]["model_requests"] == 3
+    assert result["progress"]["completed_files"] == 0
+    assert result["progress"]["percent"] == 6.0  # 3 * 0.1 files / 5 files
 
 
 async def test_running_job_without_inventory_is_unknown(project) -> None:
