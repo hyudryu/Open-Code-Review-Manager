@@ -34,14 +34,15 @@ export function parseHeaderLines(text: string): Record<string, string> {
   return headers;
 }
 
-/** Parse KEY=VALUE env lines. The value may be empty; the key may not. */
+/** Parse KEY=VALUE env lines, normalizing whitespace around the separator.
+ * The value may be empty; the key may not. */
 export function parseEnvLines(text: string): string[] {
   return parseLines(text).map((line) => {
     const idx = line.indexOf("=");
     if (idx <= 0) {
       throw new Error(`Env line "${line}" must be "KEY=VALUE".`);
     }
-    return line;
+    return `${line.slice(0, idx).trim()}=${line.slice(idx + 1).trim()}`;
   });
 }
 
@@ -58,4 +59,12 @@ export function parseToolList(text: string): string[] {
     .split(",")
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
+}
+
+/** Server-name constraint shared with the backend schema (no dots — they are
+ * the `ocr config set` key separator). */
+export const OCR_MCP_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export function isValidMcpServerName(name: string): boolean {
+  return OCR_MCP_NAME_PATTERN.test(name);
 }

@@ -48,6 +48,7 @@ import {
 } from "../lib/mcp";
 import {
   headersToText,
+  isValidMcpServerName,
   listToText,
   parseEnvLines,
   parseHeaderLines,
@@ -269,10 +270,14 @@ function McpServerForm({
   const [envText, setEnvText] = useState(listToText(editing?.env));
   const [error, setError] = useState<unknown>(null);
 
+  const trimmedName = name.trim();
+  const nameInvalid = trimmedName.length > 0 && !isValidMcpServerName(trimmedName);
+
   async function submit() {
     setError(null);
     let config: OcrMcpServerInput;
     try {
+      const headers = parseHeaderLines(headersText);
       config = {
         type,
         ...(type === "stdio"
@@ -284,9 +289,7 @@ function McpServerForm({
             }
           : {
               url: url.trim(),
-              headers: Object.keys(parseHeaderLines(headersText)).length
-                ? parseHeaderLines(headersText)
-                : null,
+              headers: Object.keys(headers).length ? headers : null,
             }),
         tools: parseToolList(toolsText),
       };
@@ -295,7 +298,7 @@ function McpServerForm({
       return;
     }
     try {
-      await upsert.mutateAsync({ name: name.trim(), ...config });
+      await upsert.mutateAsync({ name: trimmedName, ...config });
       toast.success(
         editing ? "MCP server updated" : "MCP server added",
         "Reviews will connect to it from the next run.",
@@ -323,7 +326,8 @@ function McpServerForm({
             onClick={submit}
             disabled={
               upsert.isPending ||
-              !name.trim() ||
+              !trimmedName ||
+              nameInvalid ||
               (type === "stdio" ? !command.trim() : !url.trim())
             }
           >
@@ -340,6 +344,7 @@ function McpServerForm({
             onChange={(e) => setName(e.target.value)}
             placeholder="docs"
             help="Letters, digits, hyphen, underscore — no dots."
+            error={nameInvalid ? "Invalid name: dots and spaces are not allowed." : null}
             required
             disabled={Boolean(editing)}
             mono
@@ -578,7 +583,15 @@ function OcrMcpServersTab() {
       </section>
 
       {formOpen ? (
-        <McpServerForm open={formOpen} onOpenChange={setFormOpen} editing={editing} />
+        // Keyed by the edited server so the form state is always freshly
+        // initialized from `editing` — no stale values if the modal is ever
+        // kept mounted or retargeted while open.
+        <McpServerForm
+          key={editing?.name ?? "new"}
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          editing={editing}
+        />
       ) : null}
 
       <ConfirmDialog

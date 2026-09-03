@@ -443,13 +443,14 @@ async def ocr_add_mcp_server(
     except ServiceError as exc:
         return _error_payload(exc)
     except ValidationError as exc:
-        # Format without echoing inputs — header/env values may hold secrets.
+        # Pick only loc/msg from each error — never echo the offending input,
+        # which may hold header/env secret values.
         details = [
             {
                 "loc": [str(part) for part in err.get("loc", [])],
                 "msg": err.get("msg", ""),
             }
-            for err in exc.errors(include_url=False, include_input=False)
+            for err in exc.errors()
         ]
         return {
             "error": {

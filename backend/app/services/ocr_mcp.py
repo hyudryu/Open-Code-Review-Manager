@@ -22,6 +22,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.core.logging import get_logger, redactor
 from app.schemas.ocr_mcp import NAME_PATTERN, OcrMcpServerConfig
 from app.services.errors import NotFoundError, ValidationFailedError
@@ -55,14 +57,14 @@ class OcrMcpServerService:
     # ------------------------------------------------------------------
 
     async def list(self) -> list[dict[str, Any]]:
-        servers = self._read_servers()
+        servers = await asyncio.to_thread(self._read_servers)
         return [
             {"name": name, **self._normalize(config)}
             for name, config in sorted(servers.items())
         ]
 
     async def get(self, name: str) -> dict[str, Any]:
-        servers = self._read_servers()
+        servers = await asyncio.to_thread(self._read_servers)
         if name not in servers:
             raise NotFoundError("MCP server", name)
         return {"name": name, **self._normalize(servers[name])}
@@ -84,11 +86,11 @@ class OcrMcpServerService:
 
         async with _WRITE_LOCK:
             path = ocr_user_config_path()
-            document = self._read_document(path)
+            document = await asyncio.to_thread(self._read_document, path)
             servers = document.setdefault("mcp_servers", {})
             replaced = name in servers
             servers[name] = data
-            self._write_document(path, document)
+            await asyncio.to_thread(self._write_document, path, document)
 
         self._register_secrets(data)
         logger.info(
@@ -105,12 +107,12 @@ class OcrMcpServerService:
         self._validate_name(name)
         async with _WRITE_LOCK:
             path = ocr_user_config_path()
-            document = self._read_document(path)
+            document = await asyncio.to_thread(self._read_document, path)
             servers = document.get("mcp_servers")
             if not isinstance(servers, dict) or name not in servers:
                 raise NotFoundError("MCP server", name)
             removed = servers.pop(name)
-            self._write_document(path, document)
+            await asyncio.to_thread(self._write_document, path, document)
 
         logger.info("ocr_mcp_server_removed", name=name)
         return {"name": name, "removed": True, **self._normalize(removed)}
@@ -156,10 +158,36 @@ class OcrMcpServerService:
 
         if not isinstance(config, dict):
             return {"type": "stdio"}
-        normalized = OcrMcpServerConfig.model_validate(config).model_dump(
-            exclude_none=True
-        )
-        return normalized
+        try:
+            return OcrMcpServerConfig.model_validate(config).model_dump(
+                exclude_none=True
+            )
+        except ValidationError:
+            # Entry written outside this service (hand-edited config or a
+            # future CLI field). Surface what we can instead of failing the
+            # whole listing; the raw entry stays untouched on disk.
+            logger.warning(
+                "ocr_mcp_server_entry_nonconforming",
+                raw_keys=sorted(str(key) for key in config),
+            )
+            coerced: dict[str, Any] = {
+                "type": (
+                    config["type"]
+                    if config.get("type") in ("stdio", "remote")
+                    else "stdio"
+                )
+            }
+            for key in ("command", "url", "setup"):
+                if isinstance(config.get(key), str):
+                    coerced[key] = config[key]
+            for key in ("args", "tools", "env"):
+                if isinstance(config.get(key), list):
+                    coerced[key] = [str(item) for item in config[key]]
+            if isinstance(config.get("headers"), dict):
+                coerced["headers"] = {
+                    str(k): str(v) for k, v in config["headers"].items()
+                }
+            return coerced
 
     @staticmethod
     def _read_servers() -> dict[str, Any]:

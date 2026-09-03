@@ -1,5 +1,6 @@
 import {
   headersToText,
+  isValidMcpServerName,
   listToText,
   parseEnvLines,
   parseHeaderLines,
@@ -27,11 +28,12 @@ describe("ocr mcp form helpers", () => {
     expect(headersToText(null)).toBe("");
   });
 
-  it("parses KEY=VALUE env lines and rejects missing keys", () => {
+  it("parses KEY=VALUE env lines, trims around the separator, rejects missing keys", () => {
     expect(parseEnvLines("DOCS_TOKEN=secret\nEMPTY=\n")).toEqual([
       "DOCS_TOKEN=secret",
       "EMPTY=",
     ]);
+    expect(parseEnvLines("KEY = value ")).toEqual(["KEY=value"]);
     expect(() => parseEnvLines("BROKEN")).toThrow();
   });
 
@@ -41,5 +43,14 @@ describe("ocr mcp form helpers", () => {
       "get_page",
     ]);
     expect(parseToolList("")).toEqual([]);
+  });
+
+  it("enforces the server-name constraint (no dots, no leading separator)", () => {
+    expect(isValidMcpServerName("docs")).toBe(true);
+    expect(isValidMcpServerName("CodeGraph-2")).toBe(true);
+    expect(isValidMcpServerName("")).toBe(false);
+    expect(isValidMcpServerName("has.dot")).toBe(false);
+    expect(isValidMcpServerName("has space")).toBe(false);
+    expect(isValidMcpServerName("-leading")).toBe(false);
   });
 });

@@ -164,6 +164,45 @@ async def test_upsert_rejects_unknown_fields(config_path: Path) -> None:
         OcrMcpServerConfig.model_validate({"command": "npx", "bogus": 1})
 
 
+async def test_list_tolerates_nonconforming_cli_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Entries written outside this service must not break list/get/remove."""
+
+    path = tmp_path / "config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "mcp_servers": {
+                    "ok": {"command": "npx"},
+                    "weird": {
+                        "type": "sse",
+                        "url": "https://x/mcp",
+                        "future_field": 1,
+                    },
+                    "junk": "not-a-dict",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OCR_CONFIG_PATH", str(path))
+    by_name = {
+        server["name"]: server for server in await OcrMcpServerService().list()
+    }
+    assert by_name["ok"]["command"] == "npx"
+    # Unknown transport is surfaced as stdio rather than failing the listing;
+    # readable fields are preserved.
+    assert by_name["weird"]["type"] == "stdio"
+    assert by_name["weird"]["url"] == "https://x/mcp"
+    assert by_name["junk"] == {"name": "junk", "type": "stdio"}
+    # And the raw (non-conforming) entry can still be removed.
+    removed = await OcrMcpServerService().remove("weird")
+    assert removed["removed"] is True
+    assert "weird" not in _read(path)["mcp_servers"]
+
+
 async def test_corrupt_config_raises_structured_error(
     tmp_path: Path, monkeypatch
 ) -> None:

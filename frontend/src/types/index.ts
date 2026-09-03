@@ -484,17 +484,9 @@ export interface OcrMcpServer {
   env?: string[] | null;
 }
 
-/** Payload for creating or replacing an OCR MCP server. */
-export interface OcrMcpServerInput {
-  type: "stdio" | "remote";
-  command?: string | null;
-  args?: string[] | null;
-  url?: string | null;
-  headers?: Record<string, string> | null;
-  tools?: string[] | null;
-  setup?: string | null;
-  env?: string[] | null;
-}
+/** Payload for creating or replacing an OCR MCP server — the stored shape
+ * minus its name key. */
+export type OcrMcpServerInput = Omit<OcrMcpServer, "name">;
 
 export interface SystemInfo {
   app_version: string;
