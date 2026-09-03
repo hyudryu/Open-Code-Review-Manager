@@ -277,7 +277,6 @@ function McpServerForm({
     setError(null);
     let config: OcrMcpServerInput;
     try {
-      const headers = parseHeaderLines(headersText);
       config = {
         type,
         ...(type === "stdio"
@@ -289,7 +288,12 @@ function McpServerForm({
             }
           : {
               url: url.trim(),
-              headers: Object.keys(headers).length ? headers : null,
+              // Parsed only for remote servers — a stdio form never shows
+              // the headers field, so stale text must not block submit.
+              headers: (() => {
+                const parsed = parseHeaderLines(headersText);
+                return Object.keys(parsed).length ? parsed : null;
+              })(),
             }),
         tools: parseToolList(toolsText),
       };
@@ -522,7 +526,7 @@ function OcrMcpServersTab() {
                   <Td className={layout.small}>
                     {server.type === "remote"
                       ? (server.url ?? "—")
-                      : [server.command, ...(server.args ?? [])].join(" ")}
+                      : [server.command ?? "—", ...(server.args ?? [])].join(" ")}
                     {server.setup ? (
                       <span className={layout.small} style={{ display: "block", opacity: 0.75 }}>
                         setup: {server.setup}

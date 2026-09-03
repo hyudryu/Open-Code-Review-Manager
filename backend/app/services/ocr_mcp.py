@@ -202,7 +202,7 @@ class OcrMcpServerService:
             data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
             raise ValidationFailedError(
                 "The OpenCodeReview config file could not be read.",
                 detail=f"{type(exc).__name__} while reading {path}: {exc}",
@@ -211,7 +211,17 @@ class OcrMcpServerService:
                     "servers live under its mcp_servers key."
                 ),
             ) from exc
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            # Never silently rebuild a file whose top level isn't an object —
+            # an upsert would overwrite the user's content.
+            raise ValidationFailedError(
+                "The OpenCodeReview config file is not a JSON object.",
+                detail=f"Expected a JSON object at {path}, got {type(data).__name__}.",
+                next_action=(
+                    "Fix the config file so the top level is an object, then retry."
+                ),
+            )
+        return data
 
     @staticmethod
     def _write_document(path: Path, document: dict[str, Any]) -> None:

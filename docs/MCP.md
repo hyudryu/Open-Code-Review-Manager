@@ -63,9 +63,12 @@ await session.call_tool("ocr_remove_mcp_server", {"name": "docs"})
 Validation matches the CLI: a `stdio` server requires `command`, a `remote`
 server requires `type="remote"` **and** `url`, server names must not contain
 dots (they are the `ocr config set` key separator), and unknown fields are
-rejected. The change persists in the user config and therefore applies to
-every subsequent review — including jobs queued through this manager, which
-inherit the map into their isolated job config.
+rejected. `command` and `setup` must be single lines — they are persisted and
+later executed by the OCR binary with the user's privileges, so agents should
+only add servers the user explicitly asked for and confirm exact commands
+when they were not spelled out. The change persists in the user config and
+therefore applies to every subsequent review — including jobs queued through
+this manager, which inherit the map into their isolated job config.
 
 ### Asynchronous semantics
 

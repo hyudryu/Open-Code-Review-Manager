@@ -75,6 +75,15 @@ class OcrMcpServerConfig(BaseModel):
     def _strip_strings(cls, value: str | None) -> str | None:
         return _strip_or_none(value)
 
+    @field_validator("command", "setup")
+    @classmethod
+    def _single_line(cls, value: str | None) -> str | None:
+        """Commands are persisted and later run by the OCR binary — a single
+        line keeps the stored value reviewable and blocks multi-line payloads."""
+        if value and ("\n" in value or "\r" in value):
+            raise ValueError("command and setup must each be a single line")
+        return _strip_or_none(value)
+
     @field_validator("args", "tools")
     @classmethod
     def _strip_string_lists(

