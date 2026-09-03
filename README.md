@@ -19,7 +19,7 @@ A local-first web control plane for [Alibaba OpenCodeReview](https://github.com/
 - **Review recovery**: retry a review from scratch or resume an eligible OCR session
 - **GitHub review requests**: switch between GitHub CLI keychain accounts and immediately refresh GitHub data
 - **Field guidance**: Profile and Settings fields have brief explanations available by hover and keyboard focus
-- **MCP server**: lets AI agents submit and monitor code reviews programmatically
+- **MCP server**: lets AI agents submit and monitor code reviews programmatically, including installing or removing MCP servers for the review engine (Cognee, CodeGraph, docs lookup, ...)
 - **Webhooks**: signed event delivery for CI/CD integration
 - **Stale job recovery**: a watchdog reaper detects and cleans up stuck jobs
 
@@ -92,6 +92,11 @@ queue and results used by the web UI. After connecting the agent to
 - **Plan the fixes:** “Turn the findings from this review into an ordered fix
   plan.” The agent can use the `turn_findings_into_fix_plan` MCP prompt after
   retrieving the job’s findings.
+- **Extend the reviewer:** “Add the Cognee MCP server so reviews can use its
+  memory tools.” The agent calls `ocr_add_mcp_server` (and lists or removes
+  with `ocr_list_mcp_servers` / `ocr_remove_mcp_server`), which updates the
+  review engine's `mcp_servers` config; the next review connects to it
+  automatically.
 
 See [docs/MCP.md](docs/MCP.md) for the complete tool list, client setup, and
 request details.

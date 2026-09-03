@@ -470,6 +470,32 @@ export interface McpStatus {
   prompt_count: number;
 }
 
+/** One MCP server configured for the OpenCodeReview CLI itself
+ * (the `mcp_servers` map of its user config). */
+export interface OcrMcpServer {
+  name: string;
+  type: "stdio" | "remote";
+  command?: string | null;
+  args?: string[] | null;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  tools?: string[] | null;
+  setup?: string | null;
+  env?: string[] | null;
+}
+
+/** Payload for creating or replacing an OCR MCP server. */
+export interface OcrMcpServerInput {
+  type: "stdio" | "remote";
+  command?: string | null;
+  args?: string[] | null;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  tools?: string[] | null;
+  setup?: string | null;
+  env?: string[] | null;
+}
+
 export interface SystemInfo {
   app_version: string;
   python_version: string;

@@ -12,14 +12,17 @@ import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import ValidationError
 
 from app.db import models
 from app.db.session import get_session_factory
 from app.queue.service import TERMINAL_STATUSES
+from app.schemas.ocr_mcp import OcrMcpServerConfig
 from app.services.errors import ServiceError
 from app.services.eta import EtaService
 from app.services.findings import FindingService
 from app.services.jobs import JobService
+from app.services.ocr_mcp import OcrMcpServerService
 from app.services.profiles import ProfileService
 from app.services.projects import ProjectService
 from app.services.waits import wait_for_job_terminal
@@ -404,6 +407,69 @@ async def ocr_reorder_job(job_id: str, action: str) -> dict[str, Any]:
         return {"job_id": job.id, "status": job.status, "queue_position": position}
 
 
+async def ocr_list_mcp_servers() -> list[dict[str, Any]]:
+    """List the MCP servers configured for the OpenCodeReview CLI itself."""
+
+    return await OcrMcpServerService().list()
+
+
+async def ocr_add_mcp_server(
+    name: str,
+    type: str = "stdio",
+    command: str | None = None,
+    args: list[str] | None = None,
+    url: str | None = None,
+    headers: dict[str, str] | None = None,
+    tools: list[str] | None = None,
+    setup: str | None = None,
+    env: list[str] | None = None,
+) -> dict[str, Any]:
+    """Add or replace an MCP server in the OpenCodeReview CLI config."""
+
+    try:
+        config = OcrMcpServerConfig.model_validate(
+            {
+                "type": type,
+                "command": command,
+                "args": args,
+                "url": url,
+                "headers": headers,
+                "tools": tools,
+                "setup": setup,
+                "env": env,
+            }
+        )
+        return await OcrMcpServerService().upsert(name, config)
+    except ServiceError as exc:
+        return _error_payload(exc)
+    except ValidationError as exc:
+        # Format without echoing inputs — header/env values may hold secrets.
+        details = [
+            {
+                "loc": [str(part) for part in err.get("loc", [])],
+                "msg": err.get("msg", ""),
+            }
+            for err in exc.errors(include_url=False, include_input=False)
+        ]
+        return {
+            "error": {
+                "code": "validation_failed",
+                "message": "The MCP server configuration is not valid.",
+                "detail": details,
+                "next_action": "Fix the flagged fields and retry.",
+            }
+        }
+
+
+async def ocr_remove_mcp_server(name: str) -> dict[str, Any]:
+    """Remove an MCP server from the OpenCodeReview CLI config."""
+
+    try:
+        return await OcrMcpServerService().remove(name)
+    except ServiceError as exc:
+        return _error_payload(exc)
+
+
 # ---------------------------------------------------------------------------
 # Resource implementations
 # ---------------------------------------------------------------------------
@@ -471,6 +537,10 @@ async def resource_job_logs(job_id: str) -> str:
         except ServiceError as exc:
             return _json(_error_payload(exc))
         return _json({"stdout": stdout, "stderr": stderr})
+
+
+async def resource_ocr_mcp_servers() -> str:
+    return _json(await ocr_list_mcp_servers())
 
 
 # ---------------------------------------------------------------------------
@@ -752,6 +822,55 @@ def build_mcp_server() -> FastMCP:
             "'up' (one position earlier), or 'down' (one position later)."
         ),
     )(ocr_reorder_job)
+    mcp.tool(
+        name="ocr_list_mcp_servers",
+        description=(
+            "List the MCP servers configured for the OpenCodeReview review "
+            "engine (NOT this server's own tools). Each listed server is "
+            "connected by OCR before a review runs and its tools become "
+            "available to the review agent — e.g. docs lookup, issue "
+            "trackers, Cognee, or CodeGraph. Returns each server's name, "
+            "type (stdio|remote), command/args or url, tool allowlist, and "
+            "env setup."
+        ),
+    )(ocr_list_mcp_servers)
+    mcp.tool(
+        name="ocr_add_mcp_server",
+        description=(
+            "Add or replace an MCP server in the OpenCodeReview review "
+            "engine's config so its tools become available to the review "
+            "agent. Use when the user asks to install, connect, or add an "
+            "MCP server (e.g. Cognee, CodeGraph, a docs server) for code "
+            "reviews.\n\n"
+            "TWO TRANSPORT TYPES:\n"
+            "  stdio (default) — local subprocess. Requires command (e.g. "
+            "'npx', 'uvx', or an absolute path); args carries the command "
+            "arguments (e.g. [\"-y\", \"@acme/docs-mcp-server\"]). Optional: "
+            "env (KEY=VALUE strings), setup (shell command run once before "
+            "the server starts, e.g. 'npm install -g @acme/server').\n"
+            "  remote — Streamable HTTP endpoint. Requires url "
+            "(http/https) AND type='remote'; setting only url is not "
+            "enough. Optional: headers (object of HTTP headers; values may "
+            "reference $ENV_VARS).\n\n"
+            "OPTIONAL FOR BOTH: tools — allowlist of tool names to expose "
+            "to the reviewer; omit to register every tool the server "
+            "offers. Prefer an allowlist to cut token cost.\n\n"
+            "The change persists in the OCR user config "
+            "(~/.opencodereview/config.json) and applies to every "
+            "subsequent review, including jobs queued through this "
+            "manager. Re-calling with an existing name replaces that "
+            "server."
+        ),
+    )(ocr_add_mcp_server)
+    mcp.tool(
+        name="ocr_remove_mcp_server",
+        description=(
+            "Remove an MCP server from the OpenCodeReview review engine's "
+            "config. Its tools stop being available to the review agent on "
+            "subsequent reviews. Pass the exact server name from "
+            "ocr_list_mcp_servers."
+        ),
+    )(ocr_remove_mcp_server)
 
     mcp.resource("ocr://projects", description="All registered projects.")(
         resource_projects
@@ -772,6 +891,10 @@ def build_mcp_server() -> FastMCP:
     mcp.resource("ocr://jobs/{job_id}/logs", description="stdout/stderr tails.")(
         resource_job_logs
     )
+    mcp.resource(
+        "ocr://mcp-servers",
+        description="MCP servers configured for the OpenCodeReview review engine.",
+    )(resource_ocr_mcp_servers)
 
     mcp.prompt(name="review_branch", description="Review a branch range.")(
         prompt_review_branch

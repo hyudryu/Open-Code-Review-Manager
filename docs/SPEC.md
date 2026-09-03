@@ -1462,6 +1462,23 @@ Creates a retry.
 
 Changes queue position when the caller has permission.
 
+### `ocr_list_mcp_servers`
+
+Lists the MCP servers configured for the OCR review engine itself (the
+`mcp_servers` map of its user config). Those servers' tools become available
+to the review agent during reviews.
+
+### `ocr_add_mcp_server`
+
+Adds or replaces one review-engine MCP server: `name` plus the upstream
+fields (`type` stdio|remote, `command`/`args` for stdio, `url`/`headers` for
+remote, optional `tools` allowlist, `setup`, `env`). stdio requires
+`command`; remote requires `url`.
+
+### `ocr_remove_mcp_server`
+
+Removes one review-engine MCP server by name.
+
 ## MCP Resources
 
 Expose:
@@ -1474,6 +1491,7 @@ ocr://jobs/{job_id}
 ocr://jobs/{job_id}/result
 ocr://jobs/{job_id}/findings
 ocr://jobs/{job_id}/logs
+ocr://mcp-servers
 ```
 
 ## MCP Prompts
@@ -1768,6 +1786,10 @@ POST   /api/v1/webhook-deliveries/{id}/replay
 
 ```text
 GET  /api/v1/health
+GET  /api/v1/ocr/mcp-servers
+GET  /api/v1/ocr/mcp-servers/{name}
+PUT  /api/v1/ocr/mcp-servers/{name}
+DELETE /api/v1/ocr/mcp-servers/{name}
 GET  /api/v1/system/info
 GET  /api/v1/system/ocr
 POST /api/v1/system/ocr/test
@@ -2510,6 +2532,7 @@ Cover:
 - Export.
 - Webhook test delivery.
 - MCP status display.
+- OCR review-engine MCP server management (add/remove).
 - Keyboard navigation.
 
 ## Visual Regression
