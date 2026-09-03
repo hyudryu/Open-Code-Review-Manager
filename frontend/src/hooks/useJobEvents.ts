@@ -34,6 +34,7 @@ export interface LiveJobState {
   summary: Record<string, unknown> | null;
   inputTokens: number;
   outputTokens: number;
+  modelRequests: number;
   terminal: boolean;
   lastEventId: number;
 }
@@ -67,9 +68,18 @@ export const initialLiveJobState: LiveJobState = {
   summary: null,
   inputTokens: 0,
   outputTokens: 0,
+  modelRequests: 0,
   terminal: false,
   lastEventId: 0,
 };
+
+// Micro-progress credit for observed model requests (mirrors
+// backend/app/services/eta.py): each request counts as a fraction of a
+// completed file so the bar creeps forward while planning/grouping requests
+// run before the first file completes. Capped so request chatter can never
+// dominate real file completions.
+export const MICRO_STEP_FILES = 0.1;
+export const MICRO_CAP_FILES = 2.0;
 
 export function liveProgressTotal(
   inventoryTotal: number | null,
@@ -84,8 +94,12 @@ export function liveFileProgress(state: LiveJobState) {
     (file) => file.state === "completed" || file.state === "failed",
   ).length;
   const total = liveProgressTotal(state.totalFiles, files.length);
+  const micro = Math.min(
+    state.modelRequests * MICRO_STEP_FILES,
+    MICRO_CAP_FILES,
+  );
   const percent = total && total > 0
-    ? Math.min(100, Math.round((completed / total) * 100))
+    ? Math.min(100, Math.round(((completed + micro) / total) * 100))
     : 0;
   return { files, completed, total, percent };
 }
@@ -193,6 +207,13 @@ export function liveJobReducer(
               : state.outputTokens;
           break;
         }
+        case "job.model_request": {
+          next.modelRequests =
+            typeof payload.count === "number" && payload.count >= 0
+              ? payload.count
+              : state.modelRequests;
+          break;
+        }
         case "job.summary": {
           next.summary =
             (payload.summary as Record<string, unknown> | undefined) ?? payload;
@@ -277,6 +298,7 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       "job.file_completed",
       "job.warning",
       "job.usage",
+      "job.model_request",
       "job.finding",
       "job.summary",
       "job.completed",

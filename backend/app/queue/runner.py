@@ -509,6 +509,7 @@ class JobRunner:
             "phase": None,
             "input_tokens": 0,
             "output_tokens": 0,
+            "model_requests": 0,
             "stop": asyncio.Event(),
         }
         tail_task = asyncio.create_task(self._tail_session(job_id, job_home, tail_state))
@@ -663,6 +664,16 @@ class JobRunner:
                         "output_tokens": state["output_tokens"],
                         "seq": event.seq,
                     },
+                )
+
+            # Each model request is itself a small, visible unit of progress
+            # (planning/grouping requests happen before any file completes).
+            if (event.record_type or "").lower() == "llm_request":
+                state["model_requests"] += 1
+                await self._emit(
+                    job_id,
+                    "job.model_request",
+                    {"count": state["model_requests"], "seq": event.seq},
                 )
 
             phase = self._session_phase(event)

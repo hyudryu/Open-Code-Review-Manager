@@ -77,4 +77,49 @@ describe("live job event state", () => {
     expect(refreshed.inputTokens).toBe(2000);
     expect(refreshed.outputTokens).toBe(425);
   });
+
+  it("bumps progress by a small amount for each model request", () => {
+    // Planning/grouping requests run before any file completes: each one is
+    // itself a small unit of progress, so the bar must not sit at 0%.
+    let state = liveJobReducer(initialLiveJobState, {
+      type: "event",
+      eventType: "job.inventory",
+      payload: { total_files: 18 },
+      id: 1,
+    });
+    for (let count = 1; count <= 3; count += 1) {
+      state = liveJobReducer(state, {
+        type: "event",
+        eventType: "job.model_request",
+        payload: { count },
+        id: count + 1,
+      });
+    }
+    expect(state.modelRequests).toBe(3);
+    expect(liveFileProgress(state)).toMatchObject({
+      completed: 0,
+      total: 18,
+      percent: 2, // 3 * 0.1 files / 18 → 1.7% rounds to 2
+    });
+
+    // The counter follows the backend's cumulative count, and the credit is
+    // capped so request chatter never dominates real completions.
+    const capped = liveJobReducer(state, {
+      type: "event",
+      eventType: "job.model_request",
+      payload: { count: 500 },
+      id: 9,
+    });
+    expect(liveFileProgress(capped).percent).toBe(11); // (0 + 2.0 cap) / 18
+
+    // Completions add on top of the capped credit.
+    const done = liveJobReducer(capped, {
+      type: "event",
+      eventType: "job.file_completed",
+      payload: { file: "src/a.ts", comments: 0 },
+      id: 10,
+    });
+    expect(done.files.get("src/a.ts")?.state).toBe("completed");
+    expect(liveFileProgress(done).percent).toBe(17); // (1 + 2.0 cap) / 18 → 16.7
+  });
 });

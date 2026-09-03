@@ -49,17 +49,37 @@ _QUEUED_UNKNOWN_POLL_SECONDS = 10
 #: How many recent completed jobs inform the historical timing averages.
 _HISTORY_LIMIT = 30
 
+#: Micro-progress credit for observed model requests. Each request counts as a
+#: fraction of a completed file so the bar creeps forward while
+#: planning/grouping requests run before the first file completes. The credit
+#: is capped so request chatter can never dominate real file completions.
+MICRO_STEP_FILES = 0.1
+MICRO_CAP_FILES = 2.0
+
+
+def micro_progress_files(model_requests: int) -> float:
+    """File-equivalents credited for observed model requests (bounded)."""
+
+    if model_requests <= 0:
+        return 0.0
+    return min(model_requests * MICRO_STEP_FILES, MICRO_CAP_FILES)
+
 
 def progress_percent(
-    completed_files: int, total_files: int | None
+    completed_files: int,
+    total_files: int | None,
+    model_requests: int = 0,
 ) -> float | None:
-    """Completion percentage (0–100, one decimal) or ``None`` if unknown."""
+    """Completion percentage (0–100, one decimal) or ``None`` if unknown.
+
+    Completed files plus the bounded model-request micro credit over the
+    inventory total; the micro credit lets the bar move between completions.
+    """
 
     if not total_files or total_files <= 0:
         return None
-    if completed_files <= 0:
-        return 0.0
-    return min(100.0, round(completed_files / total_files * 100.0, 1))
+    credit = completed_files + micro_progress_files(model_requests)
+    return min(100.0, round(credit / total_files * 100.0, 1))
 
 
 def blend_pace(
@@ -176,14 +196,19 @@ class EtaService(ServiceBase):
     """Computes the job-detail ETA block from DB state (progress + history)."""
 
     async def _read_progress(self, job_id: str) -> dict[str, Any]:
-        """Reconstruct progress from persisted inventory/file_completed events."""
+        """Reconstruct progress from persisted inventory/file/request events."""
 
         stmt = (
             select(models.JobEvent)
             .where(
                 models.JobEvent.job_id == job_id,
                 models.JobEvent.event_type.in_(
-                    ["job.inventory", "job.file_completed", "job.file_started"]
+                    [
+                        "job.inventory",
+                        "job.file_completed",
+                        "job.file_started",
+                        "job.model_request",
+                    ]
                 ),
             )
             .order_by(models.JobEvent.id)
@@ -200,6 +225,7 @@ class EtaService(ServiceBase):
         # job.file_started drives the live denominator when OCR 1.8+ emits no
         # explicit inventory and reviewable-count is unknown.
         started_files = 0
+        model_requests = 0
         for event in result.scalars():
             payload = event.payload_json or {}
             if event.event_type == "job.inventory":
@@ -217,12 +243,17 @@ class EtaService(ServiceBase):
                         completed_files += 1
                 else:
                     completed_files += 1
+            elif event.event_type == "job.model_request":
+                count = payload.get("count")
+                if isinstance(count, int) and count > model_requests:
+                    model_requests = count
         if total_files is None and started_files:
             total_files = started_files
         return {
             "total_files": total_files,
             "completed_files": completed_files,
-            "percent": progress_percent(completed_files, total_files),
+            "model_requests": model_requests,
+            "percent": progress_percent(completed_files, total_files, model_requests),
             "has_real_inventory": has_real_inventory,
         }
 
