@@ -7,14 +7,14 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
 from app.api.deps import diagnostics_service, settings_service
 from app.core.config import get_settings
 from app.schemas.jobs import HealthOut, McpStatusOut, SettingsUpdate
 from app.schemas.system import DirBrowseOut
-from app.services.deps import get_ocr_adapter
+from app.services.deps import get_ocr_adapter, get_ocr_update_service
 from app.services.settings import DiagnosticsService, SettingsService
 from app.services.system_browse import SystemBrowseService
 
@@ -91,17 +91,16 @@ async def ocr_update_status():
 
     Queries the npm registry for the latest ``@alibaba-group/open-code-review``
     version and compares it with the currently detected installation.
+    ``update_in_progress`` reports whether an update install is running.
     """
 
-    from httpx import AsyncClient, Timeout
-
-    from app.core.logging import get_logger
     from app.ocr.version import is_newer
+    from app.services.ocr_update import INSTALL_COMMAND, latest_npm_version
 
-    logger = get_logger(__name__)
     adapter = get_ocr_adapter()
     status = await adapter.detect()
     current_version = status.version
+    update_service = get_ocr_update_service()
 
     # If we can't detect the current version, we can't compare.
     if not current_version:
@@ -109,45 +108,60 @@ async def ocr_update_status():
             "current_version": None,
             "latest_version": None,
             "update_available": False,
-            "install_command": "npm i -g @alibaba-group/open-code-review",
+            "update_in_progress": update_service.in_progress,
+            "install_command": INSTALL_COMMAND,
             "error": "Current version not detected",
         }
 
-    # Query npm registry for the latest version.
-    npm_url = "https://registry.npmjs.org/@alibaba-group/open-code-review"
-    try:
-        async with AsyncClient(timeout=Timeout(5.0)) as client:
-            resp = await client.get(f"{npm_url}/latest")
-            resp.raise_for_status()
-            npm_data = resp.json()
-            latest_version = npm_data.get("version")
-    except Exception as exc:
-        logger.warning("Failed to check npm for latest version: %s", exc)
+    latest_version = await latest_npm_version()
+    if latest_version is None:
         return {
             "current_version": current_version,
             "latest_version": None,
             "update_available": False,
-            "install_command": "npm i -g @alibaba-group/open-code-review",
-            "error": f"Could not reach npm registry: {exc}",
+            "update_in_progress": update_service.in_progress,
+            "install_command": INSTALL_COMMAND,
+            "error": "Could not reach npm registry",
         }
-
-    if not latest_version:
-        return {
-            "current_version": current_version,
-            "latest_version": None,
-            "update_available": False,
-            "install_command": "npm i -g @alibaba-group/open-code-review",
-            "error": "No version found on npm",
-        }
-
-    update_available = is_newer(current_version, latest_version)
 
     return {
         "current_version": current_version,
         "latest_version": latest_version,
-        "update_available": update_available,
-        "install_command": "npm i -g @alibaba-group/open-code-review",
+        "update_available": is_newer(current_version, latest_version),
+        "update_in_progress": update_service.in_progress,
+        "install_command": INSTALL_COMMAND,
     }
+
+
+@router.post("/system/ocr/update")
+async def ocr_update(request: Request):
+    """Install the latest OpenCodeReview release via npm and re-probe OCR.
+
+    Long-running (up to ``ocr_update_timeout_seconds``); the response carries
+    the refreshed version comparison. Refuses to run concurrently with
+    another update or while a review job is executing.
+    """
+
+    from app.services.ocr_update import OCRUpdateError
+
+    update_service = get_ocr_update_service()
+    if update_service.in_progress:
+        raise HTTPException(
+            status_code=409, detail="An OpenCodeReview update is already running."
+        )
+    queue_worker = getattr(request.app.state, "queue_worker", None)
+    if queue_worker is not None and queue_worker.runner.active_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A review is currently running. Wait for it to finish or cancel "
+                "it before updating OpenCodeReview."
+            ),
+        )
+    try:
+        return await update_service.update()
+    except OCRUpdateError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/settings")

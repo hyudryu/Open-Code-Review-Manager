@@ -88,6 +88,7 @@ export interface OcrUpdateStatus {
   current_version: string | null;
   latest_version: string | null;
   update_available: boolean;
+  update_in_progress?: boolean;
   install_command: string;
   error?: string | null;
 }
@@ -98,6 +99,32 @@ export function useOcrUpdateStatus(options?: Partial<UseQueryOptions<OcrUpdateSt
     queryFn: () => api.get<OcrUpdateStatus>("/api/v1/system/ocr/update-status"),
     staleTime: 5 * 60 * 1000, // cache for 5 minutes
     ...options,
+  });
+}
+
+export interface OcrUpdateResult {
+  ok: boolean;
+  previous_version: string | null;
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+  message: string;
+}
+
+/** Runs `npm i -g @alibaba-group/open-code-review` on the backend host. */
+export function useUpdateOcr() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<OcrUpdateResult>("/api/v1/system/ocr/update"),
+    onSuccess: (data) => {
+      qc.setQueryData(qk.systemOcr, (prev: OCRStatus | undefined) =>
+        prev && data.current_version ? { ...prev, version: data.current_version } : prev,
+      );
+      void qc.invalidateQueries({ queryKey: qk.systemOcr });
+      void qc.invalidateQueries({ queryKey: ["ocr-update-status"] });
+      void qc.invalidateQueries({ queryKey: qk.systemInfo });
+      void qc.invalidateQueries({ queryKey: qk.health });
+    },
   });
 }
 

@@ -9,6 +9,7 @@ import {
   useSettings,
   useSystemInfo,
   useSystemOcr,
+  useUpdateOcr,
   useUpdateSettings,
 } from "../api/hooks";
 import { useUiStore, type ThemePreference } from "../hooks/store";
@@ -223,21 +224,16 @@ export function SettingsPage() {
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
   const reprobe = useReprobeOcr();
+  const updateOcr = useUpdateOcr();
   const { themePreference, setThemePreference } = useUiStore();
   const [ocrPath, setOcrPath] = useState("");
   const [gitPath, setGitPath] = useState("");
 
-  function openUpdateCommand() {
-    const cmd = ocrUpdate.data?.install_command ?? "npm i -g @alibaba-group/open-code-review";
-    const isWin = typeof window !== "undefined" && /win/i.test(navigator.userAgent);
-    if (isWin) {
-      // Fallback: try to open the command in a new terminal via shell URI.
-      window.open(`shell:wt.exe /k ${encodeURIComponent(cmd)}`);
-    } else {
-      // Try to open a terminal with the command (works on most Linux desktops).
-      window.open(`shell:x-terminal-emulator -e ${encodeURIComponent(cmd)}`);
-    }
-    toast.info("Opening terminal to run:", cmd);
+  function runOcrUpdate() {
+    updateOcr.mutateAsync().then(
+      (res) => toast.success(res.message || "OpenCodeReview updated"),
+      (err: Error) => toast.error("Update failed", err.message),
+    );
   }
 
   useEffect(() => {
@@ -364,10 +360,12 @@ export function SettingsPage() {
                     <Button
                       variant="primary"
                       size="small"
-                      onClick={openUpdateCommand}
-                      disabled={ocrUpdate.isFetching}
+                      onClick={runOcrUpdate}
+                      disabled={updateOcr.isPending || ocrUpdate.data?.update_in_progress}
                     >
-                      <IconExternal size={14} /> Update to {ocrUpdate.data.latest_version}
+                      {updateOcr.isPending || ocrUpdate.data?.update_in_progress
+                        ? "Updating…"
+                        : `Update to ${ocrUpdate.data.latest_version}`}
                     </Button>
                     <span className={layout.small}>
                       Runs: {ocrUpdate.data.install_command}
