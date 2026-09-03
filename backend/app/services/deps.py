@@ -10,9 +10,11 @@ from app.core.config import Settings, get_settings
 from app.core.secrets import SecretStore, get_secret_store
 from app.git.service import GitService
 from app.ocr.adapter import OCRAdapter
+from app.services.ocr_update import OCRUpdateService
 
 _git: GitService | None = None
 _adapter: OCRAdapter | None = None
+_update: OCRUpdateService | None = None
 
 
 def get_git_service() -> GitService:
@@ -29,12 +31,20 @@ def get_ocr_adapter() -> OCRAdapter:
     return _adapter
 
 
+def get_ocr_update_service() -> OCRUpdateService:
+    global _update
+    if _update is None:
+        _update = OCRUpdateService(get_ocr_adapter())
+    return _update
+
+
 def reset_service_singletons() -> None:
     """Tests call this when replacing settings (new data dir / binaries)."""
 
-    global _git, _adapter
+    global _git, _adapter, _update
     _git = None
     _adapter = None
+    _update = None
 
 
 class ServiceBase:

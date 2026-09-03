@@ -11,6 +11,7 @@ import {
   useQueue,
   useSystemInfo,
   useSystemOcr,
+  useUpdateOcr,
 } from "../api/hooks";
 import {
   liveFileProgress,
@@ -279,6 +280,7 @@ export function OverviewPage() {
   const providers = useProviders();
   const ocr = useSystemOcr();
   const ocrUpdate = useOcrUpdateStatus();
+  const updateOcr = useUpdateOcr();
   const info = useSystemInfo();
   const cancelJob = useCancelJob();
   const speedLearner = useSpeedLearner();
@@ -311,6 +313,12 @@ export function OverviewPage() {
 
   const projectName = (id: string) =>
     projects.data?.find((p) => p.id === id)?.display_name ?? "Project";
+
+  const runOcrUpdate = () =>
+    updateOcr.mutateAsync().then(
+      (res) => toast.success(res.message || "OpenCodeReview updated"),
+      (err: Error) => toast.error("Update failed", err.message),
+    );
 
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
 
@@ -537,13 +545,29 @@ export function OverviewPage() {
                 ) : (
                   <StatusDot tone="muted" label="checking" />
                 )}
-                {ocr.data?.status === "ok" && ocrUpdate.data?.update_available && (
-                  <div>
-                    <span style={{ fontSize: 11, color: "var(--accent)" }}>
-                      {ocrUpdate.data.latest_version} available
-                    </span>
-                  </div>
-                )}
+                {ocr.data?.status === "ok" &&
+                  (ocrUpdate.data?.update_available ||
+                    ocrUpdate.data?.update_in_progress) && (
+                    <div className={layout.row} style={{ gap: 8 }}>
+                      {ocrUpdate.data?.update_available && (
+                        <span style={{ fontSize: 11, color: "var(--accent)" }}>
+                          {ocrUpdate.data.latest_version} available
+                        </span>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="small"
+                        disabled={
+                          updateOcr.isPending || ocrUpdate.data?.update_in_progress
+                        }
+                        onClick={runOcrUpdate}
+                      >
+                        {updateOcr.isPending || ocrUpdate.data?.update_in_progress
+                          ? "Updating…"
+                          : "Update"}
+                      </Button>
+                    </div>
+                  )}
               </div>
               <div className={styles.compactRow}>
                 <div className={styles.compactRowMain}>

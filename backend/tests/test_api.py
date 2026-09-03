@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 
 import httpx
 import pytest
@@ -132,6 +133,106 @@ async def test_system_endpoints(client) -> None:
     assert body["ocr"]["version"] == "9.9.9-fake"
     assert body["queue_worker"]["running"] is True
     assert "python_version" in body
+
+
+async def test_ocr_update_status_endpoint(client, monkeypatch) -> None:
+    from app.services import ocr_update as update_module
+
+    async def fake_latest() -> str:
+        return "9.9.9"
+
+    monkeypatch.setattr(update_module, "latest_npm_version", fake_latest)
+    response = await client.get("/api/v1/system/ocr/update-status")
+    assert response.status_code == 200
+    body = response.json()
+    # Stable 9.9.9 sorts after the fake prerelease 9.9.9-fake.
+    assert body["current_version"] == "9.9.9-fake"
+    assert body["latest_version"] == "9.9.9"
+    assert body["update_available"] is True
+    assert body["update_in_progress"] is False
+    assert body["install_command"] == "npm i -g @alibaba-group/open-code-review"
+
+
+async def test_ocr_update_endpoint(client, monkeypatch) -> None:
+    """POST /system/ocr/update runs npm install, then re-probes the binary."""
+
+    from app.services import ocr_update as update_module
+
+    monkeypatch.setattr(
+        update_module,
+        "npm_install_argv",
+        lambda: [sys.executable, "-c", "pass"],
+    )
+
+    async def fake_latest() -> str:
+        return "9.9.9-fake"
+
+    monkeypatch.setattr(update_module, "latest_npm_version", fake_latest)
+
+    response = await client.post("/api/v1/system/ocr/update", headers=csrf(client))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["current_version"] == "9.9.9-fake"
+    assert body["update_available"] is False
+
+
+async def test_ocr_update_endpoint_failure(client, monkeypatch) -> None:
+    from app.services import ocr_update as update_module
+
+    monkeypatch.setattr(
+        update_module,
+        "npm_install_argv",
+        lambda: [sys.executable, "-c", "import sys; sys.exit(3)"],
+    )
+
+    response = await client.post("/api/v1/system/ocr/update", headers=csrf(client))
+    assert response.status_code == 500
+    assert "exited with code 3" in response.json()["detail"]
+
+
+async def test_ocr_update_refuses_concurrent_updates(client, monkeypatch) -> None:
+    from app.services import ocr_update as update_module
+
+    monkeypatch.setattr(
+        update_module,
+        "npm_install_argv",
+        lambda: [sys.executable, "-c", "pass"],
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_latest() -> str:
+        started.set()
+        await release.wait()
+        return "9.9.9-fake"
+
+    monkeypatch.setattr(update_module, "latest_npm_version", slow_latest)
+
+    first = asyncio.create_task(
+        client.post("/api/v1/system/ocr/update", headers=csrf(client))
+    )
+    await asyncio.wait_for(started.wait(), timeout=10)
+    second = await client.post("/api/v1/system/ocr/update", headers=csrf(client))
+    assert second.status_code == 409
+    release.set()
+    first_response = await asyncio.wait_for(first, timeout=10)
+    assert first_response.status_code == 200
+
+
+async def test_ocr_update_refuses_while_review_runs(client) -> None:
+    from app.queue.runner import ActiveJob
+
+    runner = client._transport.app.state.queue_worker.runner
+    runner._active["running-job"] = ActiveJob("running-job")
+    try:
+        response = await client.post(
+            "/api/v1/system/ocr/update", headers=csrf(client)
+        )
+    finally:
+        runner._active.pop("running-job", None)
+    assert response.status_code == 409
+    assert "review is currently running" in response.json()["detail"]
 
 
 async def test_mcp_status_endpoint(client) -> None:
