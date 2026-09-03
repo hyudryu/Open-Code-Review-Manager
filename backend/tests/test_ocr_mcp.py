@@ -231,6 +231,39 @@ async def test_list_tolerates_nonconforming_cli_entries(
     assert "weird" not in _read(path)["mcp_servers"]
 
 
+async def test_list_skips_entries_with_nonconforming_names(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A hand-edited key like 'my.server' must not break the listing."""
+
+    path = tmp_path / "config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "mcp_servers": {
+                    "ok": {"command": "npx"},
+                    "my.server": {"command": "uvx"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OCR_CONFIG_PATH", str(path))
+    listed = await OcrMcpServerService().list()
+    assert [server["name"] for server in listed] == ["ok"]
+    # The raw entry stays on disk for the CLI, which owns that namespace.
+    assert "my.server" in _read(path)["mcp_servers"]
+    # A malformed mcp_servers value is repaired on upsert instead of crashing.
+    document = _read(path)
+    document["mcp_servers"] = ["not", "a", "dict"]
+    path.write_text(json.dumps(document), encoding="utf-8")
+    await OcrMcpServerService().upsert(
+        "docs", OcrMcpServerConfig(command="npx")
+    )
+    assert set(_read(path)["mcp_servers"]) == {"docs"}
+
+
 async def test_corrupt_config_raises_structured_error(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -357,7 +357,12 @@ function McpServerForm({
             label="Type"
             value={type}
             onChange={(e) => setType(e.target.value as "stdio" | "remote")}
-            help="stdio runs locally; remote dials out."
+            help={
+              editing
+                ? "Fixed after creation — remove and re-add to change the type."
+                : "stdio runs locally; remote dials out."
+            }
+            disabled={Boolean(editing)}
           >
             <option value="stdio">stdio</option>
             <option value="remote">remote</option>

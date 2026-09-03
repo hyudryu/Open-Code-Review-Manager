@@ -20,27 +20,33 @@ export function listToText(items?: string[] | null): string {
 /**
  * Parse "Name: value" header lines into an object. The value may be empty
  * (OCR then expands `$VAR` references at connection time); a line without
- * a separator is a form error, not silently dropped input.
+ * a separator is a form error, not silently dropped input. Error messages
+ * reference the line number only — the raw line may hold a credential.
  */
 export function parseHeaderLines(text: string): Record<string, string> {
-  const headers: Record<string, string> = {};
-  for (const line of parseLines(text)) {
+  const headers: Record<string, string> = Object.create(null);
+  parseLines(text).forEach((line, index) => {
     const idx = line.indexOf(":");
     if (idx <= 0) {
-      throw new Error(`Header line "${line}" must be "Name: value".`);
+      throw new Error(
+        `Header line ${index + 1} is malformed; expected "Name: value".`,
+      );
     }
     headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-  }
+  });
   return headers;
 }
 
 /** Parse KEY=VALUE env lines, normalizing whitespace around the separator.
- * The value may be empty; the key may not. */
+ * The value may be empty; the key may not. Error messages reference the
+ * line number only — the raw line may hold a credential. */
 export function parseEnvLines(text: string): string[] {
-  return parseLines(text).map((line) => {
+  return parseLines(text).map((line, index) => {
     const idx = line.indexOf("=");
     if (idx <= 0) {
-      throw new Error(`Env line "${line}" must be "KEY=VALUE".`);
+      throw new Error(
+        `Env line ${index + 1} is malformed; expected "KEY=VALUE".`,
+      );
     }
     return `${line.slice(0, idx).trim()}=${line.slice(idx + 1).trim()}`;
   });

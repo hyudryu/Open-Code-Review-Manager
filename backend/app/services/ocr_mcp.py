@@ -58,12 +58,21 @@ class OcrMcpServerService:
 
     async def list(self) -> list[dict[str, Any]]:
         servers = await asyncio.to_thread(self._read_servers)
-        return [
-            {"name": name, **self._normalize(config)}
-            for name, config in sorted(servers.items())
-        ]
+        listed: list[dict[str, Any]] = []
+        for name, config in sorted(servers.items()):
+            # The name is the config key and may have been hand-edited; a
+            # non-conforming name cannot pass the response schema, so skip
+            # the entry rather than failing the whole listing.
+            if not _NAME_RE.match(name or ""):
+                logger.warning(
+                    "ocr_mcp_server_name_nonconforming", raw_name=str(name)
+                )
+                continue
+            listed.append({"name": name, **self._normalize(config)})
+        return listed
 
     async def get(self, name: str) -> dict[str, Any]:
+        self._validate_name(name)
         servers = await asyncio.to_thread(self._read_servers)
         if name not in servers:
             raise NotFoundError("MCP server", name)
@@ -87,7 +96,12 @@ class OcrMcpServerService:
         async with _WRITE_LOCK:
             path = ocr_user_config_path()
             document = await asyncio.to_thread(self._read_document, path)
-            servers = document.setdefault("mcp_servers", {})
+            servers = document.get("mcp_servers")
+            if not isinstance(servers, dict):
+                # Hand-edited configs may store anything here; replace the
+                # malformed value rather than crash on dict assignment.
+                servers = {}
+                document["mcp_servers"] = servers
             replaced = name in servers
             servers[name] = data
             await asyncio.to_thread(self._write_document, path, document)
