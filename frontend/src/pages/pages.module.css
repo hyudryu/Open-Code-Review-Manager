@@ -304,12 +304,15 @@
 }
 
 .fileProgress {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   padding: var(--space-1) 0;
   font: var(--text-code);
   font-size: 12px;
+}
+
+.fileProgressRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .fileProgressPath {
@@ -317,6 +320,58 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fileProgressBar {
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.fileProgressFill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  transition: width 300ms var(--ease);
+}
+
+.fileProgressFillCompleted,
+.fileProgressFillFailed {
+  width: 100%;
+}
+
+.fileProgressFillCompleted {
+  background: var(--success);
+}
+
+.fileProgressFillFailed {
+  background: var(--warning);
+}
+
+.fileProgressFillStarted {
+  width: 34%;
+  background: var(--accent);
+  animation: fileProgressSlide 1.4s var(--ease) infinite;
+}
+
+@keyframes fileProgressSlide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    /* 34% segment exiting the right edge of the track. */
+    transform: translateX(294%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fileProgressFillStarted {
+    animation: none;
+    transform: translateX(0);
+  }
 }
 
 /* --- Findings --------------------------------------------------------------------- */

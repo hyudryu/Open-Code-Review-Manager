@@ -104,6 +104,26 @@ export function liveFileProgress(state: LiveJobState) {
   return { files, completed, total, percent };
 }
 
+const FILE_SORT_RANK: Record<LiveFileProgress["state"], number> = {
+  started: 0,
+  completed: 1,
+  failed: 1,
+  pending: 2,
+};
+
+/**
+ * Display order for the per-file list: files being reviewed on top, then
+ * reviewed ones, then files still queued. Stable within each group (rows
+ * keep their first-seen order), so nothing jumps around while reviewing.
+ */
+export function sortFileProgress(
+  files: LiveFileProgress[],
+): LiveFileProgress[] {
+  return [...files].sort(
+    (a, b) => FILE_SORT_RANK[a.state] - FILE_SORT_RANK[b.state],
+  );
+}
+
 export function unseenJobEvents(
   events: JobEventRecord[],
   seenIds: ReadonlySet<number>,
