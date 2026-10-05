@@ -416,21 +416,33 @@ class JobRunner:
                 ReviewJobContext.model_validate(context_data), env=env
             )
             if preview.ok:
-                reviewable_files = [
-                    item.path for item in preview.files if item.will_review and item.path
+                reviewable_items = [
+                    item for item in preview.files if item.will_review and item.path
                 ]
-                await self._emit(
-                    job_id,
-                    "job.inventory",
+                reviewable_files = [item.path for item in reviewable_items]
+                inventory_payload: dict[str, Any] = {
+                    "files": reviewable_files,
+                    "total_files": (
+                        preview.reviewable_count
+                        if preview.reviewable_count is not None
+                        else len(reviewable_files)
+                    ),
+                }
+                # Changed-line counts per file feed the size-aware ETA
+                # estimate; the human-text preview fallback (OCR 1.8) has no
+                # stats, so the key is omitted rather than padded with zeros.
+                file_stats = [
                     {
-                        "files": reviewable_files,
-                        "total_files": (
-                            preview.reviewable_count
-                            if preview.reviewable_count is not None
-                            else len(reviewable_files)
-                        ),
-                    },
-                )
+                        "path": item.path,
+                        "insertions": item.insertions,
+                        "deletions": item.deletions,
+                    }
+                    for item in reviewable_items
+                    if item.insertions is not None or item.deletions is not None
+                ]
+                if file_stats:
+                    inventory_payload["file_stats"] = file_stats
+                await self._emit(job_id, "job.inventory", inventory_payload)
                 for line in self._preview_log_lines(preview.raw_text):
                     await self._emit(
                         job_id,

@@ -229,6 +229,21 @@ export interface Job {
   started_at: string | null;
   completed_at: string | null;
   findings_count: number;
+  /**
+   * Present only on the job-detail response (GET /api/v1/jobs/{id}), which
+   * attaches live progress + server-side ETA hints for pollers.
+   */
+  progress?: JobProgress | null;
+  eta_seconds?: number | null;
+  eta?: string | null;
+  poll_interval_seconds?: number | null;
+}
+
+export interface JobProgress {
+  total_files: number | null;
+  completed_files: number;
+  model_requests: number;
+  percent: number | null;
 }
 
 export interface GeneratedCommand {

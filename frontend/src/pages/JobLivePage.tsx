@@ -142,6 +142,7 @@ export function JobLivePage() {
               {live.phase ? `Phase: ${phaseLabel(live.phase)} · ` : ""}
               {completedCount} of {totalFiles ?? "…"} files
               {totalFiles ? ` · ${progress.percent}%` : ""}
+              {!isTerminal && job.data?.eta ? ` · ETA ~${job.data.eta}` : ""}
             </span>
           </div>
           <div
