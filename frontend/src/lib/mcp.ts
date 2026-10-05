@@ -81,6 +81,23 @@ export const MCP_TOOLS: McpToolDoc[] = [
     description: "Move a queued job within the queue.",
     args: "job_id, action (top | up | down)",
   },
+  {
+    name: "ocr_list_mcp_servers",
+    description:
+      "List the MCP servers configured for the OpenCodeReview review engine (its own tool integrations, e.g. Cognee or CodeGraph).",
+  },
+  {
+    name: "ocr_add_mcp_server",
+    description:
+      "Add or replace an MCP server in the OpenCodeReview review engine config so its tools become available to the review agent.",
+    args: "name, type (stdio | remote), command?, args?, url?, headers?, tools?, setup?, env?",
+  },
+  {
+    name: "ocr_remove_mcp_server",
+    description:
+      "Remove an MCP server from the OpenCodeReview review engine config.",
+    args: "name",
+  },
 ];
 
 export const MCP_RESOURCES: McpResourceDoc[] = [
@@ -91,6 +108,7 @@ export const MCP_RESOURCES: McpResourceDoc[] = [
   { uri: "ocr://jobs/{job_id}/result", description: "Full JSON result export." },
   { uri: "ocr://jobs/{job_id}/findings", description: "Structured findings." },
   { uri: "ocr://jobs/{job_id}/logs", description: "Redacted stdout/stderr tails." },
+  { uri: "ocr://mcp-servers", description: "MCP servers configured for the OpenCodeReview review engine." },
 ];
 
 export const MCP_PROMPTS: McpPromptDoc[] = [

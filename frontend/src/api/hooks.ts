@@ -23,6 +23,8 @@ import type {
   JobPreview,
   McpStatus,
   OCRStatus,
+  OcrMcpServer,
+  OcrMcpServerInput,
   Page,
   PreviewFile,
   Project,
@@ -71,6 +73,7 @@ export const qk = {
   eventHistory: (jobId: string) => ["jobs", jobId, "events", "history"] as const,
   webhooks: ["webhooks"] as const,
   deliveries: (endpointId: string) => ["webhooks", endpointId, "deliveries"] as const,
+  ocrMcpServers: ["ocr", "mcp-servers"] as const,
 };
 
 // --- system -----------------------------------------------------------------
@@ -169,6 +172,36 @@ export function useSystemMcp(options?: Partial<UseQueryOptions<McpStatus>>) {
     queryFn: () => api.get<McpStatus>("/api/v1/system/mcp"),
     staleTime: 60_000,
     ...options,
+  });
+}
+
+// --- OCR CLI MCP servers -----------------------------------------------------
+
+/** MCP servers configured for the OpenCodeReview review engine itself
+ * (the `mcp_servers` map of its user config) — not this app's own tools. */
+export function useOcrMcpServers(options?: Partial<UseQueryOptions<OcrMcpServer[]>>) {
+  return useQuery({
+    queryKey: qk.ocrMcpServers,
+    queryFn: () => api.get<OcrMcpServer[]>("/api/v1/ocr/mcp-servers"),
+    ...options,
+  });
+}
+
+export function useUpsertOcrMcpServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, ...config }: OcrMcpServerInput & { name: string }) =>
+      api.put<OcrMcpServer>(`/api/v1/ocr/mcp-servers/${encodeURIComponent(name)}`, config),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.ocrMcpServers }),
+  });
+}
+
+export function useDeleteOcrMcpServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.delete<void>(`/api/v1/ocr/mcp-servers/${encodeURIComponent(name)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.ocrMcpServers }),
   });
 }
 

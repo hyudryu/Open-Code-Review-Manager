@@ -27,6 +27,48 @@ rather than reviewing the code itself.
 | `ocr_cancel_job` | Cancel a running or queued review job | `job_id` |
 | `ocr_retry_job` | Create a retry of a failed/cancelled job | `job_id` |
 | `ocr_reorder_job` | Move a queued job (top/up/down) | `job_id`, `action` |
+| `ocr_list_mcp_servers` | List the MCP servers configured for the OpenCodeReview **review engine** (not this server's own tools) | — |
+| `ocr_add_mcp_server` | Add or replace an MCP server in the review engine's config so its tools become available to the review agent (e.g. Cognee, CodeGraph, a docs server) | `name`, `type` (`stdio`/`remote`), `command?`, `args?`, `url?`, `headers?`, `tools?`, `setup?`, `env?` |
+| `ocr_remove_mcp_server` | Remove an MCP server from the review engine's config | `name` |
+
+### Managing the review engine's MCP servers
+
+OpenCodeReview itself is an MCP client: entries under `mcp_servers` in its
+user config (`~/.opencodereview/config.json`, also editable through
+`ocr config set/unset`) are connected before a review, and their tools become
+available to the review agent next to the built-in ones. The three
+`*_mcp_server` tools manage that same map, so an agent can install or remove
+review-time tool integrations on request:
+
+```python
+# Give the reviewer access to a docs server (local stdio transport).
+await session.call_tool("ocr_add_mcp_server", {
+    "name": "docs", "command": "npx",
+    "args": ["-y", "@acme/docs-mcp-server"],
+    "tools": ["search_docs"],              # allowlist; omit to expose all
+    "env": ["DOCS_TOKEN=secret"],
+})
+
+# Or a remote Streamable HTTP server.
+await session.call_tool("ocr_add_mcp_server", {
+    "name": "search", "type": "remote",
+    "url": "https://mcp.example.com/mcp",
+    "headers": {"Authorization": "Bearer $MCP_TOKEN"},  # $VARS expanded by OCR
+})
+
+servers = await session.call_tool("ocr_list_mcp_servers", {})
+await session.call_tool("ocr_remove_mcp_server", {"name": "docs"})
+```
+
+Validation matches the CLI: a `stdio` server requires `command`, a `remote`
+server requires `type="remote"` **and** `url`, server names must not contain
+dots (they are the `ocr config set` key separator), and unknown fields are
+rejected. `command` and `setup` must be single lines — they are persisted and
+later executed by the OCR binary with the user's privileges, so agents should
+only add servers the user explicitly asked for and confirm exact commands
+when they were not spelled out. The change persists in the user config and
+therefore applies to every subsequent review — including jobs queued through
+this manager, which inherit the map into their isolated job config.
 
 ### Asynchronous semantics
 
@@ -109,6 +151,7 @@ required.
 | `ocr://jobs/{job_id}/result` | Full JSON result export (same as REST export `format=json`) |
 | `ocr://jobs/{job_id}/findings` | Structured findings |
 | `ocr://jobs/{job_id}/logs` | Redacted stdout/stderr tails |
+| `ocr://mcp-servers` | MCP servers configured for the OpenCodeReview review engine |
 
 ## Prompts
 

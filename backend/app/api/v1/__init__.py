@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     folders,
     jobs,
+    ocr,
     profiles,
     projects,
     providers,
@@ -23,4 +24,5 @@ api_router.include_router(profiles.router)
 api_router.include_router(jobs.router)
 api_router.include_router(queue.router)
 api_router.include_router(webhooks.router)
+api_router.include_router(ocr.router)
 api_router.include_router(system.router)

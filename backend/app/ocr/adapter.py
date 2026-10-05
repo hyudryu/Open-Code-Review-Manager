@@ -25,6 +25,7 @@ from typing import Any
 from app.core.config import Settings
 from app.core.logging import get_logger, redact_text, redactor
 from app.core.security import normalize_path
+from app.services.ocr_mcp import ocr_user_config_path
 from app.ocr.models import (
     LLMTestResult,
     NormalizedFinding,
@@ -655,8 +656,8 @@ class OCRAdapter:
         # env vars, copy the user's global OCR config so the binary can find
         # provider credentials (e.g. custom_providers with api_key) that were
         # configured via the OCR CLI rather than this app's SecretStore.
+        global_config = ocr_user_config_path()
         if not provider.token:
-            global_config = Path.home() / ".opencodereview" / "config.json"
             if global_config.is_file():
                 try:
                     global_data = json.loads(
@@ -671,6 +672,7 @@ class OCRAdapter:
                     for key in ("providers", "custom_providers"):
                         if key in global_data:
                             config[key] = global_data[key]
+                    _inherit_mcp_servers(config, global_data)
                     # If the global config has an llm block with credentials,
                     # use it as the base and let our overrides win.
                     global_llm = global_data.get("llm")
@@ -684,7 +686,6 @@ class OCRAdapter:
             # ``auth_header`` in the config's llm block — it needs
             # ``api_key`` or ``custom_providers``. Always merge the global
             # custom_providers so the binary can resolve the provider.
-            global_config = Path.home() / ".opencodereview" / "config.json"
             if global_config.is_file():
                 try:
                     global_data = json.loads(
@@ -696,6 +697,7 @@ class OCRAdapter:
                     for key in ("providers", "custom_providers"):
                         if key in global_data:
                             config[key] = global_data[key]
+                    _inherit_mcp_servers(config, global_data)
                 except (OSError, json.JSONDecodeError):
                     pass
 
@@ -1053,6 +1055,34 @@ class OCRAdapter:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _inherit_mcp_servers(
+    job_config: dict[str, Any], global_data: dict[str, Any]
+) -> None:
+    """Copy the user's ``mcp_servers`` into a managed job's config.
+
+    Managed jobs run with an isolated HOME, so without this step the OCR
+    binary would never see the MCP servers configured through the CLI or the
+    manager's MCP-servers management surface. Header/env secret values are
+    registered with the log redactor before use.
+    """
+
+    servers = global_data.get("mcp_servers")
+    if not isinstance(servers, dict) or not servers:
+        return
+    job_config["mcp_servers"] = servers
+    for server in servers.values():
+        if not isinstance(server, dict):
+            continue
+        headers = server.get("headers")
+        if isinstance(headers, dict):
+            for value in headers.values():
+                redactor.register(str(value))
+        env_entries = server.get("env")
+        if isinstance(env_entries, list):
+            for entry in env_entries:
+                redactor.register(str(entry).partition("=")[2])
 
 
 def _opt_str(value: Any) -> str | None:
