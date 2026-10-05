@@ -1,9 +1,18 @@
 /** Active job detail (SPEC §14, §33.9) — SSE-driven live progress. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCancelJob, useJob, useProject } from "../api/hooks";
-import { liveFileProgress, sortFileProgress, useJobEvents } from "../hooks/useJobEvents";
+import {
+  fileFillPercent,
+  liveFileProgress,
+  sortFileProgress,
+  useJobEvents,
+} from "../hooks/useJobEvents";
+import {
+  estimateAdaptiveETA,
+  historicalPerFile,
+} from "../lib/speed-learner";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Badge,
@@ -35,6 +44,8 @@ export function JobLivePage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const logRef = useRef<HTMLDivElement | null>(null);
+  // 1s re-render tick so in-progress file bars can creep forward.
+  const [, tick] = useReducer((n: number) => n + 1, 0);
 
   const isTerminal = job.data ? TERMINAL_STATUSES.includes(job.data.status) : false;
   const live = useJobEvents(jobId, Boolean(job.data) && !isTerminal);
@@ -51,6 +62,12 @@ export function JobLivePage() {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [live.log, autoScroll]);
+
+  useEffect(() => {
+    if (isTerminal) return undefined;
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [isTerminal]);
 
   const progress = useMemo(() => liveFileProgress(live), [live]);
   const { completed: completedCount, total: totalFiles } = progress;
@@ -71,6 +88,20 @@ export function JobLivePage() {
   }
 
   const j = job.data;
+
+  // Estimated duration of one file's review (ms): the job's own observed pace
+  // blended with the historical (model, concurrency) average once files
+  // complete; the historical average alone before that. Drives per-file fills.
+  const startedMs = j.started_at ? Date.parse(j.started_at) : Number.NaN;
+  const jobElapsedMs = Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : 0;
+  const histPerFile = historicalPerFile(j);
+  const blendedPerFile = estimateAdaptiveETA({
+    completedFiles: completedCount,
+    totalFiles: totalFiles ?? null,
+    elapsedMs: jobElapsedMs,
+    historicalPerFile: histPerFile,
+  }).perFile;
+  const perFileEstimateMs = blendedPerFile > 0 ? blendedPerFile : histPerFile;
 
   return (
     <>
@@ -168,51 +199,63 @@ export function JobLivePage() {
           </div>
           {files.length > 0 ? (
             <ul style={{ maxHeight: 220, overflowY: "auto", marginTop: 12 }}>
-              {files.map((file) => (
-                <li key={file.path} className={styles.fileProgress}>
-                  <div className={styles.fileProgressRow}>
-                    <StatusDot
-                      tone={
-                        file.state === "completed"
-                          ? "ok"
+              {files.map((file) => {
+                // In-progress files fill by elapsed time scaled to the
+                // estimated per-file duration; without a timestamp or
+                // estimate they fall back to a looping fill.
+                const fill =
+                  file.state === "started" && file.startedAt
+                    ? fileFillPercent(file.startedAt, Date.now(), perFileEstimateMs)
+                    : null;
+                const fillClassName =
+                  file.state === "completed"
+                    ? styles.fileProgressFillCompleted
+                    : file.state === "failed"
+                      ? styles.fileProgressFillFailed
+                      : file.state === "started"
+                        ? fill !== null
+                          ? styles.fileProgressFillStarted
+                          : styles.fileProgressFillStartedUnknown
+                        : "";
+                return (
+                  <li key={file.path} className={styles.fileProgress}>
+                    <div className={styles.fileProgressRow}>
+                      <StatusDot
+                        tone={
+                          file.state === "completed"
+                            ? "ok"
+                            : file.state === "failed"
+                              ? "warn"
+                              : file.state === "started"
+                                ? "accent"
+                                : "muted"
+                        }
+                        label=""
+                      />
+                      <span className={styles.fileProgressPath}>{file.path}</span>
+                      <span className={layout.small}>
+                        {file.state === "completed"
+                          ? `${file.comments ?? 0} comment${file.comments === 1 ? "" : "s"}`
                           : file.state === "failed"
-                            ? "warn"
+                            ? "failed"
                             : file.state === "started"
-                              ? "accent"
-                              : "muted"
-                      }
-                      label=""
-                    />
-                    <span className={styles.fileProgressPath}>{file.path}</span>
-                    <span className={layout.small}>
-                      {file.state === "completed"
-                        ? `${file.comments ?? 0} comment${file.comments === 1 ? "" : "s"}`
-                        : file.state === "failed"
-                          ? "failed"
-                          : file.state === "started"
-                            ? "reviewing…"
-                            : "queued"}
-                    </span>
-                  </div>
-                  {/* Decorative per-file bar; the row's text label carries the
-                      state for assistive tech. OCR reports no per-file
-                      percentage, so in-progress files get an indeterminate
-                      slide rather than a fake fraction. */}
-                  <div className={styles.fileProgressBar} aria-hidden="true">
-                    <span
-                      className={
-                        file.state === "completed"
-                          ? styles.fileProgressFillCompleted
-                          : file.state === "failed"
-                            ? styles.fileProgressFillFailed
-                            : file.state === "started"
-                              ? styles.fileProgressFillStarted
-                              : styles.fileProgressFill
-                      }
-                    />
-                  </div>
-                </li>
-              ))}
+                              ? "reviewing…"
+                              : "queued"}
+                      </span>
+                    </div>
+                    {/* Decorative per-file bar; the row's text label carries
+                        the state for assistive tech. OCR reports no per-file
+                        percentage, so the fill tracks elapsed time against an
+                        estimate and never reads as done before the file is. */}
+                    <div className={styles.fileProgressBar} aria-hidden="true">
+                      <span
+                        className={`${styles.fileProgressFill} ${fillClassName}`}
+                        style={fill !== null ? { width: `${fill}%` } : undefined}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className={layout.small} style={{ marginTop: 12 }}>

@@ -352,25 +352,34 @@
 }
 
 .fileProgressFillStarted {
-  width: 34%;
   background: var(--accent);
-  animation: fileProgressSlide 1.4s var(--ease) infinite;
+  transition: width 300ms var(--ease);
 }
 
-@keyframes fileProgressSlide {
-  from {
-    transform: translateX(-100%);
+/* Fallback when no timestamp or estimate is available (e.g. cold history):
+   fill up over ~45s, hold, restart — keeps the "progressing" read of the
+   JS-driven bars without pretending to know a fraction. */
+.fileProgressFillStartedUnknown {
+  background: var(--accent);
+  animation: fileProgressFillLoop 45s linear infinite;
+}
+
+@keyframes fileProgressFillLoop {
+  0% {
+    width: 4%;
   }
-  to {
-    /* 34% segment exiting the right edge of the track. */
-    transform: translateX(294%);
+  90% {
+    width: 95%;
+  }
+  100% {
+    width: 95%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fileProgressFillStarted {
+  .fileProgressFillStartedUnknown {
     animation: none;
-    transform: translateX(0);
+    width: 34%;
   }
 }
 

@@ -16,6 +16,8 @@ export interface LiveFileProgress {
   path: string;
   state: "pending" | "started" | "completed" | "failed";
   comments: number | null;
+  /** Epoch ms when the file_started event was observed (event time when known). */
+  startedAt?: number;
 }
 
 export interface LiveLogLine {
@@ -54,7 +56,14 @@ const TERMINAL_STATUSES = new Set([
 
 export type LiveJobAction =
   | { type: "connected"; value: boolean }
-  | { type: "event"; eventType: string; payload: Record<string, unknown>; id: number | null }
+  | {
+      type: "event";
+      eventType: string;
+      payload: Record<string, unknown>;
+      id: number | null;
+      /** Epoch ms the event occurred, when the transport knows it. */
+      atMs?: number;
+    }
   | { type: "reset" };
 
 export const initialLiveJobState: LiveJobState = {
@@ -124,6 +133,28 @@ export function sortFileProgress(
   );
 }
 
+/** Bounds of the per-file fill bar: starts visible, never reads as done. */
+export const FILE_FILL_MIN_PERCENT = 4;
+export const FILE_FILL_MAX_PERCENT = 95;
+
+/**
+ * Fill percentage for one in-progress file's bar: linear in the time the file
+ * has been under review, scaled by an estimated per-file duration. Capped
+ * below 100% because OCR reports no real per-file percentage — the bar only
+ * completes when the file actually does. Returns `null` when there is no
+ * usable timestamp or estimate (caller falls back to an animated fill).
+ */
+export function fileFillPercent(
+  startedAtMs: number,
+  nowMs: number,
+  estimateMs: number,
+): number | null {
+  if (!(estimateMs > 0) || !(startedAtMs > 0)) return null;
+  const elapsed = Math.max(0, nowMs - startedAtMs);
+  const percent = (elapsed / estimateMs) * 100;
+  return Math.min(FILE_FILL_MAX_PERCENT, Math.max(FILE_FILL_MIN_PERCENT, percent));
+}
+
 export function unseenJobEvents(
   events: JobEventRecord[],
   seenIds: ReadonlySet<number>,
@@ -143,7 +174,7 @@ export function liveJobReducer(
     case "connected":
       return { ...state, connected: action.value };
     case "event": {
-      const { eventType, payload, id } = action;
+      const { eventType, payload, id, atMs } = action;
       const next: LiveJobState = {
         ...state,
         lastEventId: id && id > state.lastEventId ? id : state.lastEventId,
@@ -184,7 +215,12 @@ export function liveJobReducer(
               const first = files.keys().next().value;
               if (first !== undefined) files.delete(first);
             }
-            files.set(file, { path: file, state: "started", comments: null });
+            files.set(file, {
+              path: file,
+              state: "started",
+              comments: null,
+              startedAt: atMs ?? Date.now(),
+            });
             next.files = files;
           }
           break;
@@ -272,12 +308,13 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       eventType: string,
       payload: Record<string, unknown>,
       id: number | null,
+      atMs?: number,
     ) => {
       if (id !== null) {
         if (seenEventIdsRef.current.has(id)) return;
         seenEventIdsRef.current.add(id);
       }
-      dispatch({ type: "event", eventType, payload, id });
+      dispatch({ type: "event", eventType, payload, id, atMs });
       if (
         TERMINAL_EVENTS.has(eventType) ||
         (eventType === "job.status" &&
@@ -306,7 +343,12 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
       const parsedId = event.lastEventId
         ? Number.parseInt(event.lastEventId, 10)
         : Number.NaN;
-      applyEvent(eventType, payload, Number.isNaN(parsedId) ? null : parsedId);
+      applyEvent(
+        eventType,
+        payload,
+        Number.isNaN(parsedId) ? null : parsedId,
+        Date.now(),
+      );
     };
 
     const types = [
@@ -334,7 +376,15 @@ export function useJobEvents(jobId: string | undefined, enabled = true) {
           { limit: 1000 },
         );
         for (const event of unseenJobEvents(events, seenEventIdsRef.current)) {
-          applyEvent(event.event_type, event.payload ?? {}, event.id);
+          // Replayed events carry their true timestamps, so files that started
+          // before the page opened show their real elapsed time.
+          const parsed = event.created_at ? Date.parse(event.created_at) : Number.NaN;
+          applyEvent(
+            event.event_type,
+            event.payload ?? {},
+            event.id,
+            Number.isFinite(parsed) ? parsed : undefined,
+          );
         }
       } catch {
         // SSE remains the primary transport; the next poll retries reconciliation.
