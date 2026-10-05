@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   useCancelJob,
+  useJob,
   useJobs,
   useOcrUpdateStatus,
   useProjects,
@@ -166,8 +167,17 @@ function ActiveReviewActivity({
   estimateRemaining: (job: Job, completedFiles: number, totalFiles: number | null) => string | null;
 }) {
   const live = useJobEvents(job.id, true);
+  // The server computes a size-aware ETA (file changed-line counts blended
+  // with observed pace); poll it at the backend's suggested cadence and fall
+  // back to the client-side estimate while it is unavailable.
+  const detail = useJob(job.id, { refetchInterval: 30_000 });
   const progress = useMemo(() => liveFileProgress(live), [live]);
-  const estimatedRemaining = estimateRemaining(job, progress.completed, progress.total);
+  const serverEta = detail.data?.eta ?? null;
+  const clientEta = estimateRemaining(job, progress.completed, progress.total);
+  const estimatedRemaining = serverEta ?? clientEta;
+  const etaHint = serverEta
+    ? "Estimated by the server from this review's file sizes, corrected by its own observed pace and blended with recent reviews on the same model and concurrency."
+    : "Estimated from this review's observed pace, blended with prior reviews using the same model and concurrency when available.";
   const phase = live.phase
     ? live.phase.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
     : null;
@@ -207,7 +217,7 @@ function ActiveReviewActivity({
       <p
         className={layout.small}
         style={{ marginTop: 2, color: "var(--text-tertiary)" }}
-        title="Estimated from this review's observed pace, blended with prior reviews using the same model and concurrency when available."
+        title={etaHint}
       >
         {estimatedRemaining ? `Estimated time remaining: ~${estimatedRemaining}` : "Estimating time remaining…"}
       </p>

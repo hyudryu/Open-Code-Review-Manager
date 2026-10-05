@@ -139,6 +139,9 @@ async def test_commit_job_completes_end_to_end(project, fake_ocr, make_worker) -
         assert inventory.payload_json == {
             "files": ["hello.py"],
             "total_files": 1,
+            "file_stats": [
+                {"path": "hello.py", "insertions": 3, "deletions": 1},
+            ],
         }
         model_request = next(
             e for e in events if e.event_type == "job.model_request"

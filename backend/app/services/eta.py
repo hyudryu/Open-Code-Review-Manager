@@ -10,9 +10,13 @@ wait before polling again.
 Estimates are derived only from data already in the DB — no extra persistence
 and no changes to the OCR process:
 
-- Running jobs blend their own observed pace (``elapsed / completed_files``)
-  with a historical per-file average learned from recent completed jobs, so
-  the estimate self-corrects as files complete.
+- Running jobs prefer a **size-aware** estimate when the inventory carries
+  per-file changed-line counts and history can fit a runtime model
+  (``runtime ≈ alpha * files + beta * changed_lines``, fitted per
+  model/concurrency bucket). Files count by predicted cost, not equally, and
+  once files complete the job's own elapsed-to-predicted ratio corrects the
+  estimate (blended against a prior of 1.0). Without sizes the estimate blends
+  the job's observed per-file pace with a historical per-file average.
 - Queued jobs extrapolate from ``active-running-remaining + (position-1) *
   avg_runtime + avg_runtime`` using recent completed jobs.
 - Terminal jobs report 0 and ask the caller to stop polling.
@@ -26,7 +30,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import select
 
@@ -48,6 +52,11 @@ _QUEUED_UNKNOWN_POLL_SECONDS = 10
 
 #: How many recent completed jobs inform the historical timing averages.
 _HISTORY_LIMIT = 30
+
+#: Minimum completed jobs with changed-line stats before a size model is
+#: fitted; below this the data cannot separate per-file overhead from
+#: per-line cost reliably.
+_MIN_FIT_SAMPLES = 3
 
 #: Micro-progress credit for observed model requests. Each request counts as a
 #: fraction of a completed file so the bar creeps forward while
@@ -104,20 +113,73 @@ def blend_pace(
     ) / (HISTORICAL_PRIOR_WEIGHT + completed_files)
 
 
+def fit_size_model(
+    samples: Sequence[tuple[float, int, int]],
+) -> tuple[float, float] | None:
+    """Least-squares fit of ``runtime ≈ alpha * files + beta * changed_lines``.
+
+    Samples are ``(runtime_seconds, files_reviewed, changed_lines)`` triples
+    from recent completed jobs, so the coefficients are wall-clock level: they
+    already embed whatever concurrency those jobs ran with, which is why the
+    fit is taken per (model, concurrency) bucket rather than globally.
+
+    Returns ``(alpha, beta)`` — per-file fixed cost and seconds per changed
+    line — or ``None`` when the data cannot support a fit: too few samples, a
+    singular system (all jobs the same shape), or a negative coefficient
+    (bigger reviews taking less time is noise, not signal).
+    """
+
+    if len(samples) < _MIN_FIT_SAMPLES:
+        return None
+    n = len(samples)
+    sf = sum(s[1] for s in samples)
+    ss = sum(s[2] for s in samples)
+    sff = sum(s[1] * s[1] for s in samples)
+    sss = sum(s[2] * s[2] for s in samples)
+    sfs = sum(s[1] * s[2] for s in samples)
+    sft = sum(s[1] * s[0] for s in samples)
+    sst = sum(s[2] * s[0] for s in samples)
+    det = sff * sss - sfs * sfs
+    if det <= 1e-9 * max(sff * sss, 1.0):
+        return None
+    alpha = (sss * sft - sfs * sst) / det
+    beta = (sff * sst - sfs * sft) / det
+    if alpha < 0 or beta < 0:
+        return None
+    return alpha, beta
+
+
+def file_work_seconds(alpha: float, beta: float, insertions: int, deletions: int) -> float:
+    """Predicted wall-seconds for one file of the given changed-line size."""
+
+    lines = max(0, (insertions or 0) + (deletions or 0))
+    return alpha + beta * lines
+
+
 def running_eta_seconds(
     *,
     total_files: int | None,
     completed_files: int,
     elapsed_seconds: float,
     historical_per_file: float | None = None,
+    remaining_work: float | None = None,
+    completed_work: float | None = None,
 ) -> float | None:
     """Estimated seconds remaining for a running job (``None`` = unknown).
 
-    Requires a known inventory. A job with at least one completed file blends
-    its own observed pace with the historical average; a job that has not
-    completed any file yet falls back to the historical per-file average so
-    the estimate is stable from the start (mirroring the frontend). Returns 0
-    once every file has completed.
+    Requires a known inventory. Two paths:
+
+    - **Size-aware** (``remaining_work`` given): remaining files are summed by
+      their fitted per-file cost. The blended multiplier starts at the prior
+      of 1.0 — the fit already reflects historical pace — and converges to the
+      job's own ``elapsed / completed_work`` ratio, which absorbs startup
+      overhead and concurrency dynamics the fit cannot see.
+    - **Legacy**: a job with at least one completed file blends its own
+      observed per-file pace with the historical average; a job that has not
+      completed any file yet falls back to the historical per-file average so
+      the estimate is stable from the start (mirroring the frontend).
+
+    Returns 0 once every file has completed.
     """
 
     if total_files is None or total_files <= 0:
@@ -125,6 +187,15 @@ def running_eta_seconds(
     remaining = total_files - completed_files
     if remaining <= 0:
         return 0.0
+    if remaining_work is not None:
+        if remaining_work <= 0:
+            return 0.0
+        if completed_files <= 0 or elapsed_seconds <= 0 or not completed_work:
+            # No observed correction yet — the fitted model is the estimate.
+            return remaining_work
+        observed_mult = elapsed_seconds / completed_work
+        blended = blend_pace(observed_mult, 1.0, completed_files)
+        return blended * remaining_work
     if completed_files <= 0 or elapsed_seconds <= 0:
         # No observed pace yet — fall back to the historical-only estimate
         # (matches estimateActiveJobETA on the frontend). Unknown when there
@@ -226,6 +297,10 @@ class EtaService(ServiceBase):
         # explicit inventory and reviewable-count is unknown.
         started_files = 0
         model_requests = 0
+        # Size-aware inputs from the inventory event: the reviewable file list
+        # and each file's changed-line counts (absent for human-text previews).
+        inventory_files: list[str] = []
+        file_stats: dict[str, tuple[int, int]] = {}
         for event in result.scalars():
             payload = event.payload_json or {}
             if event.event_type == "job.inventory":
@@ -233,6 +308,22 @@ class EtaService(ServiceBase):
                 if isinstance(count, int) and count > 0:
                     total_files = count
                     has_real_inventory = True
+                files = payload.get("files")
+                if isinstance(files, list) and files:
+                    inventory_files = [f for f in files if isinstance(f, str)]
+                stats = payload.get("file_stats")
+                if isinstance(stats, list) and stats:
+                    parsed: dict[str, tuple[int, int]] = {}
+                    for entry in stats:
+                        if not isinstance(entry, dict):
+                            continue
+                        path = entry.get("path")
+                        ins = entry.get("insertions")
+                        dele = entry.get("deletions")
+                        if path and isinstance(ins, int) and isinstance(dele, int):
+                            parsed[path] = (ins, dele)
+                    if parsed:
+                        file_stats = parsed
             elif event.event_type == "job.file_started":
                 started_files += 1
             elif event.event_type == "job.file_completed":
@@ -255,10 +346,20 @@ class EtaService(ServiceBase):
             "model_requests": model_requests,
             "percent": progress_percent(completed_files, total_files, model_requests),
             "has_real_inventory": has_real_inventory,
+            # Internal keys: used by the size-aware ETA path; stripped before
+            # the progress dict reaches API/MCP responses.
+            "inventory_files": inventory_files,
+            "file_stats": file_stats,
+            "completed_paths": seen_completed,
         }
 
     async def _history_stats(self) -> dict[str, Any]:
-        """Per-file and per-job timing averages from recent completed jobs."""
+        """Timing averages and size-model fits from recent completed jobs.
+
+        Fits are keyed wall-clock level, per (model_id, concurrency) bucket
+        with a model-only and a global fallback, because the coefficients
+        embed the concurrency those jobs ran at.
+        """
 
         stmt = (
             select(models.ReviewJob)
@@ -271,9 +372,11 @@ class EtaService(ServiceBase):
             .limit(_HISTORY_LIMIT)
         )
         result = await self.session.execute(stmt)
+        jobs = list(result.scalars())
         runtimes: list[float] = []
         per_files: list[float] = []
-        for job in result.scalars():
+        samples: list[dict[str, Any]] = []
+        for job in jobs:
             try:
                 runtime_s = (
                     _as_utc(job.completed_at) - _as_utc(job.started_at)
@@ -287,15 +390,121 @@ class EtaService(ServiceBase):
             files = summary.get("files_reviewed") or 0
             if files and files > 0:
                 per_files.append(runtime_s / files)
+            snapshot = job.configuration_snapshot_json or {}
+            samples.append(
+                {
+                    "id": job.id,
+                    "runtime": runtime_s,
+                    "files": files,
+                    "model": (snapshot.get("model") or {}).get("model_id"),
+                    "concurrency": (snapshot.get("settings") or {}).get(
+                        "concurrency"
+                    ),
+                }
+            )
+
+        # One batched query for the inventory events of all sampled jobs.
+        lines_by_job: dict[str, int] = {}
+        if samples:
+            inv_stmt = select(models.JobEvent.job_id, models.JobEvent.payload_json).where(
+                models.JobEvent.job_id.in_([s["id"] for s in samples]),
+                models.JobEvent.event_type == "job.inventory",
+            )
+            for job_id, payload in (await self.session.execute(inv_stmt)):
+                stats = (payload or {}).get("file_stats") or []
+                if not isinstance(stats, list) or not stats:
+                    continue
+                total = sum(
+                    (entry.get("insertions") or 0) + (entry.get("deletions") or 0)
+                    for entry in stats
+                    if isinstance(entry, dict)
+                )
+                lines_by_job[job_id] = max(lines_by_job.get(job_id, 0), total)
+
+        by_bucket: dict[tuple[str | None, int | None], list[tuple[float, int, int]]] = {}
+        by_model: dict[str | None, list[tuple[float, int, int]]] = {}
+        glob: list[tuple[float, int, int]] = []
+        for sample in samples:
+            lines = lines_by_job.get(sample["id"])
+            if lines is None or sample["files"] <= 0:
+                continue
+            point = (sample["runtime"], sample["files"], lines)
+            by_bucket.setdefault(
+                (sample["model"], sample["concurrency"]), []
+            ).append(point)
+            by_model.setdefault(sample["model"], []).append(point)
+            glob.append(point)
+
         return {
             "count": len(runtimes),
             "avg_runtime_s": (sum(runtimes) / len(runtimes)) if runtimes else None,
             "avg_per_file_s": (sum(per_files) / len(per_files)) if per_files else None,
+            "size_fits_by_bucket": {
+                key: fit for key, points in by_bucket.items() if (fit := fit_size_model(points))
+            },
+            "size_fits_by_model": {
+                key: fit for key, points in by_model.items() if (fit := fit_size_model(points))
+            },
+            "size_fit_global": fit_size_model(glob),
         }
 
-    async def _active_remaining_seconds(
-        self, historical_per_file: float | None
-    ) -> float:
+    @staticmethod
+    def _size_fit_for(
+        job: models.ReviewJob, history: dict[str, Any]
+    ) -> tuple[float, float] | None:
+        """Best size model for a job: exact bucket, then model, then global."""
+
+        snapshot = job.configuration_snapshot_json or {}
+        model_id = (snapshot.get("model") or {}).get("model_id")
+        concurrency = (snapshot.get("settings") or {}).get("concurrency")
+        exact = history["size_fits_by_bucket"].get((model_id, concurrency))
+        if exact:
+            return exact
+        if model_id is not None:
+            by_model = history["size_fits_by_model"].get(model_id)
+            if by_model:
+                return by_model
+        return history["size_fit_global"]
+
+    def _size_aware_eta(
+        self,
+        job: models.ReviewJob,
+        progress: dict[str, Any],
+        elapsed_seconds: float,
+        history: dict[str, Any],
+    ) -> float | None:
+        """Size-aware ETA, or ``None`` when the job lacks the data for one."""
+
+        files = progress["inventory_files"]
+        stats = progress["file_stats"]
+        # Only trust the size path with complete coverage: files without
+        # stats would silently vanish from the remaining-work sum.
+        if not files or set(files) != set(stats):
+            return None
+        fit = self._size_fit_for(job, history)
+        if fit is None or (fit[0] <= 0 and fit[1] <= 0):
+            return None
+        alpha, beta = fit
+        completed_paths = progress["completed_paths"]
+        completed_work = sum(
+            file_work_seconds(alpha, beta, *stats[path])
+            for path in completed_paths
+            if path in stats
+        )
+        remaining_work = sum(
+            file_work_seconds(alpha, beta, *stats[path])
+            for path in files
+            if path not in completed_paths
+        )
+        return running_eta_seconds(
+            total_files=progress["total_files"],
+            completed_files=progress["completed_files"],
+            elapsed_seconds=elapsed_seconds,
+            remaining_work=remaining_work,
+            completed_work=completed_work or None,
+        )
+
+    async def _active_remaining_seconds(self, history: dict[str, Any]) -> float:
         """Total remaining time of jobs currently preparing/running."""
 
         stmt = select(models.ReviewJob).where(
@@ -310,12 +519,16 @@ class EtaService(ServiceBase):
             # drag the queued estimate down toward ~one file of work.
             if not progress["has_real_inventory"]:
                 continue
-            remaining = running_eta_seconds(
-                total_files=progress["total_files"],
-                completed_files=progress["completed_files"],
-                elapsed_seconds=_elapsed_seconds(job),
-                historical_per_file=historical_per_file,
+            remaining = self._size_aware_eta(
+                job, progress, _elapsed_seconds(job), history
             )
+            if remaining is None:
+                remaining = running_eta_seconds(
+                    total_files=progress["total_files"],
+                    completed_files=progress["completed_files"],
+                    elapsed_seconds=_elapsed_seconds(job),
+                    historical_per_file=history["avg_per_file_s"],
+                )
             if remaining is not None and remaining > 0:
                 total += remaining
         return total
@@ -328,9 +541,7 @@ class EtaService(ServiceBase):
         history = await self._history_stats()
         if history["avg_runtime_s"] is None:
             return None, _QUEUED_UNKNOWN_POLL_SECONDS
-        active_remaining = await self._active_remaining_seconds(
-            history["avg_per_file_s"]
-        )
+        active_remaining = await self._active_remaining_seconds(history)
         position = job.queue_position or 1
         jobs_ahead = max(0, position - 1)
         eta = active_remaining + jobs_ahead * history["avg_runtime_s"] + history[
@@ -338,14 +549,26 @@ class EtaService(ServiceBase):
         ]
         return int(math.ceil(eta)), poll_interval_seconds(eta, running=False)
 
+    @staticmethod
+    def _public_progress(progress: dict[str, Any]) -> dict[str, Any]:
+        """The externally visible subset of ``_read_progress`` output."""
+
+        return {
+            "total_files": progress["total_files"],
+            "completed_files": progress["completed_files"],
+            "model_requests": progress["model_requests"],
+            "percent": progress["percent"],
+        }
+
     async def describe(self, job: models.ReviewJob) -> dict[str, Any]:
         """Return the ``{progress, eta_seconds, eta, poll_interval_seconds}`` block."""
 
         progress = await self._read_progress(job.id)
+        public_progress = self._public_progress(progress)
 
         if job.status in TERMINAL_STATUSES:
             return {
-                "progress": progress,
+                "progress": public_progress,
                 "eta_seconds": 0,
                 "eta": format_eta(0),
                 "poll_interval_seconds": 0,
@@ -354,7 +577,7 @@ class EtaService(ServiceBase):
         if job.status == "queued":
             eta_seconds, poll = await self._queued_eta(job)
             return {
-                "progress": progress,
+                "progress": public_progress,
                 "eta_seconds": eta_seconds,
                 "eta": format_eta(eta_seconds),
                 "poll_interval_seconds": poll,
@@ -366,17 +589,20 @@ class EtaService(ServiceBase):
         # Only a real ``job.inventory`` total is a safe ETA denominator. Without
         # one, ``total_files`` is a synthetic started-count that would make the
         # historical fallback report ~one file of ETA; keep those jobs unknown.
-        eta_total_files = (
-            progress["total_files"] if progress["has_real_inventory"] else None
-        )
-        eta_seconds = running_eta_seconds(
-            total_files=eta_total_files,
-            completed_files=progress["completed_files"],
-            elapsed_seconds=elapsed_seconds,
-            historical_per_file=history["avg_per_file_s"],
-        )
+        eta_seconds = None
+        if progress["has_real_inventory"]:
+            eta_seconds = self._size_aware_eta(job, progress, elapsed_seconds, history)
+        if eta_seconds is None:
+            eta_seconds = running_eta_seconds(
+                total_files=(
+                    progress["total_files"] if progress["has_real_inventory"] else None
+                ),
+                completed_files=progress["completed_files"],
+                elapsed_seconds=elapsed_seconds,
+                historical_per_file=history["avg_per_file_s"],
+            )
         return {
-            "progress": progress,
+            "progress": public_progress,
             "eta_seconds": (
                 int(math.ceil(eta_seconds)) if eta_seconds is not None else None
             ),
