@@ -1,4 +1,5 @@
 import {
+  fileFillPercent,
   initialLiveJobState,
   liveFileProgress,
   liveProgressTotal,
@@ -90,6 +91,42 @@ describe("live job event state", () => {
 
     expect(sorted.map((f) => f.path)).toEqual(["src/a.ts", "src/b.ts"]);
     expect(files.map((f) => f.path)).toEqual(["src/b.ts", "src/a.ts"]);
+  });
+
+  it("records when a file started review, preferring the event timestamp", () => {
+    const started = liveJobReducer(initialLiveJobState, {
+      type: "event",
+      eventType: "job.file_started",
+      payload: { file: "src/a.ts" },
+      id: 1,
+      atMs: 1_700_000_000_000,
+    });
+    expect(started.files.get("src/a.ts")?.startedAt).toBe(1_700_000_000_000);
+
+    // Live SSE events carry no timestamp — fall back to receipt time.
+    const liveStarted = liveJobReducer(initialLiveJobState, {
+      type: "event",
+      eventType: "job.file_started",
+      payload: { file: "src/b.ts" },
+      id: 2,
+    });
+    expect(liveStarted.files.get("src/b.ts")?.startedAt).toEqual(
+      expect.any(Number),
+    );
+  });
+
+  it("computes per-file fill percentages, clamped below done", () => {
+    const start = 1_000_000;
+    const estimate = 10_000;
+    // No estimate or timestamp → no computed fill (caller uses the fallback).
+    expect(fileFillPercent(start, start + 5_000, 0)).toBeNull();
+    expect(fileFillPercent(0, start + 5_000, estimate)).toBeNull();
+    // Barely started: floored so the bar is visible immediately.
+    expect(fileFillPercent(start, start + 10, estimate)).toBe(4);
+    // Linear mid-flight: 50% of the estimate.
+    expect(fileFillPercent(start, start + 5_000, estimate)).toBe(50);
+    // Running long: capped so it never reads as done before the file is.
+    expect(fileFillPercent(start, start + 60_000, estimate)).toBe(95);
   });
 
   it("refreshes live input and output token totals from cumulative usage events", () => {
