@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCancelJob, useJob, useProject } from "../api/hooks";
-import { liveFileProgress, useJobEvents } from "../hooks/useJobEvents";
+import { liveFileProgress, sortFileProgress, useJobEvents } from "../hooks/useJobEvents";
 import { PageHeader } from "../layouts/AppLayout";
 import {
   Badge,
@@ -53,7 +53,8 @@ export function JobLivePage() {
   }, [live.log, autoScroll]);
 
   const progress = useMemo(() => liveFileProgress(live), [live]);
-  const { files, completed: completedCount, total: totalFiles } = progress;
+  const { completed: completedCount, total: totalFiles } = progress;
+  const files = useMemo(() => sortFileProgress(progress.files), [progress.files]);
   const liveStatus = live.status ?? job.data?.status ?? null;
 
   if (job.isLoading) {
@@ -168,28 +169,47 @@ export function JobLivePage() {
             <ul style={{ maxHeight: 220, overflowY: "auto", marginTop: 12 }}>
               {files.map((file) => (
                 <li key={file.path} className={styles.fileProgress}>
-                  <StatusDot
-                    tone={
-                      file.state === "completed"
-                        ? "ok"
+                  <div className={styles.fileProgressRow}>
+                    <StatusDot
+                      tone={
+                        file.state === "completed"
+                          ? "ok"
+                          : file.state === "failed"
+                            ? "warn"
+                            : file.state === "started"
+                              ? "accent"
+                              : "muted"
+                      }
+                      label=""
+                    />
+                    <span className={styles.fileProgressPath}>{file.path}</span>
+                    <span className={layout.small}>
+                      {file.state === "completed"
+                        ? `${file.comments ?? 0} comment${file.comments === 1 ? "" : "s"}`
                         : file.state === "failed"
-                          ? "warn"
+                          ? "failed"
                           : file.state === "started"
-                            ? "accent"
-                            : "muted"
-                    }
-                    label=""
-                  />
-                  <span className={styles.fileProgressPath}>{file.path}</span>
-                  <span className={layout.small}>
-                    {file.state === "completed"
-                      ? `${file.comments ?? 0} comment${file.comments === 1 ? "" : "s"}`
-                      : file.state === "failed"
-                        ? "failed"
-                        : file.state === "started"
-                          ? "reviewing…"
-                          : "queued"}
-                  </span>
+                            ? "reviewing…"
+                            : "queued"}
+                    </span>
+                  </div>
+                  {/* Decorative per-file bar; the row's text label carries the
+                      state for assistive tech. OCR reports no per-file
+                      percentage, so in-progress files get an indeterminate
+                      slide rather than a fake fraction. */}
+                  <div className={styles.fileProgressBar} aria-hidden="true">
+                    <span
+                      className={
+                        file.state === "completed"
+                          ? styles.fileProgressFillCompleted
+                          : file.state === "failed"
+                            ? styles.fileProgressFillFailed
+                            : file.state === "started"
+                              ? styles.fileProgressFillStarted
+                              : styles.fileProgressFill
+                      }
+                    />
+                  </div>
                 </li>
               ))}
             </ul>

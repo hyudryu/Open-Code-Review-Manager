@@ -3,8 +3,14 @@ import {
   liveFileProgress,
   liveProgressTotal,
   liveJobReducer,
+  sortFileProgress,
   unseenJobEvents,
+  type LiveFileProgress,
 } from "../src/hooks/useJobEvents";
+
+function file(path: string, state: LiveFileProgress["state"]): LiveFileProgress {
+  return { path, state, comments: state === "completed" ? 1 : null };
+}
 
 describe("live job event state", () => {
   it("keeps an unknown scope unknown until inventory or file activity arrives", () => {
@@ -58,6 +64,32 @@ describe("live job event state", () => {
     ];
 
     expect(unseenJobEvents(events, new Set([11])).map((event) => event.id)).toEqual([10, 12]);
+  });
+
+  it("orders files for display: reviewing, then reviewed, then queued", () => {
+    const files = [
+      file("src/late.ts", "pending"),
+      file("src/done.ts", "completed"),
+      file("src/active.ts", "started"),
+      file("src/waiting.ts", "pending"),
+      file("src/broken.ts", "failed"),
+    ];
+
+    expect(sortFileProgress(files).map((f) => f.path)).toEqual([
+      "src/active.ts", // reviewing first
+      "src/done.ts", // then reviewed (stable: input order kept)
+      "src/broken.ts",
+      "src/late.ts", // queued last
+      "src/waiting.ts",
+    ]);
+  });
+
+  it("sorts file progress without mutating the input", () => {
+    const files = [file("src/b.ts", "pending"), file("src/a.ts", "started")];
+    const sorted = sortFileProgress(files);
+
+    expect(sorted.map((f) => f.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(files.map((f) => f.path)).toEqual(["src/b.ts", "src/a.ts"]);
   });
 
   it("refreshes live input and output token totals from cumulative usage events", () => {
